@@ -1,0 +1,326 @@
+/*
+ * Plain CSS, mobile-first (TASK-026). The single-column flow is the base. The
+ * wider arrangements key off the data-layout attribute, which the app sets from
+ * Config.breakpoints, so no breakpoint width is written in this file.
+ */
+:root {
+  font-family: system-ui, sans-serif;
+  line-height: 1.4;
+  color: #1a1a1a;
+  background: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 100%;
+  padding: 0.75rem;
+  margin: 0 auto;
+  /* Long place names or messages wrap instead of widening the page (NFR-002). */
+  overflow-wrap: anywhere;
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+nav ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0.5rem 0;
+  list-style: none;
+}
+
+nav a {
+  display: inline-block;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.6rem 0.75rem;
+  color: #0b4f9c;
+}
+
+button,
+input[type='text'] {
+  min-height: 44px;
+  font: inherit;
+}
+
+button {
+  min-width: 44px;
+  max-width: 100%;
+  padding: 0.4rem 0.9rem;
+  white-space: normal;
+}
+
+input[type='text'] {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+}
+
+/* Busy controls stay focusable (aria-disabled) and are dimmed, not removed from the tab order. */
+button[aria-disabled='true'] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Visible keyboard focus on every interactive element, and on headings that scripts or links focus. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+[tabindex='-1']:focus-visible {
+  outline: 3px solid #0b4f9c;
+  outline-offset: 2px;
+}
+
+.unit-toggle {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.unit-toggle legend {
+  float: left;
+  margin-right: 0.5rem;
+  padding: 0;
+}
+
+.unit-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-height: 44px;
+}
+
+.unit-toggle input {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* Demo mode must be obvious: first thing in the banner, full width, heavy border, bold. */
+.demo-notice {
+  flex: 1 1 100%;
+  padding: 0.6rem 0.75rem;
+  margin: 0 0 0.25rem;
+  border: 3px solid #8a6d00;
+  background: #fff8db;
+  font-weight: 700;
+}
+
+.demo-location-note {
+  font-weight: 600;
+}
+
+.app-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.panel {
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid #c9c9c9;
+  border-radius: 6px;
+}
+
+.panel h2 {
+  margin-top: 0;
+  font-size: 1.15rem;
+}
+
+.search-panel form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.error-text {
+  color: #8f1d1d;
+}
+
+.note {
+  color: #444444;
+  font-size: 0.9rem;
+}
+
+.values {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.values dt {
+  font-weight: 600;
+}
+
+.values dd {
+  margin: 0;
+}
+
+.condition {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Footer: data-source credit and notices (TASK-025). Same text colours as .note (#444 on white, about 9.7:1). */
+.app-footer {
+  margin-top: 1rem;
+  padding: 0.5rem 0.75rem;
+  border-top: 1px solid #c9c9c9;
+  color: #444444;
+  font-size: 0.9rem;
+}
+
+.app-footer p {
+  margin: 0.25rem 0;
+}
+
+/* Links are at least 44x44 CSS px, like every other control (WCAG 2.5.5 target used by this project). */
+.footer-link {
+  display: inline-flex;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  color: #0b4f9c;
+}
+
+/* Short credit inside the Current weather card and the Forecast list: small, wraps, never wider than its panel. */
+.panel-credit {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+/* Text for assistive technology only (the new-tab hint in link names). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Weather icon (TASK-035): Lucide SVG, drawn in the text colour (currentColor), next to the condition text. */
+.weather-icon {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.forecast-list,
+.favorites-list,
+.candidates ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.forecast-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #e2e2e2;
+}
+
+.favorites-list li {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.25rem 0;
+}
+
+.favorite-select {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  min-width: 0;
+  align-items: baseline;
+  text-align: left;
+  white-space: normal;
+}
+
+/* The favorite being shown: a text marker plus a heavy edge and bold name, not colour alone. */
+.favorite-select[aria-current='true'] {
+  border-left-width: 6px;
+  font-weight: 700;
+}
+
+.favorite-marker {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.refresh-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.status-area p {
+  margin: 0.25rem 0;
+}
+
+.error-boundary {
+  padding: 1rem;
+}
+
+/*
+ * Wide tiers (C3, user-approved 2026-10-27): visual order MUST equal the keyboard (tab) order, which is the
+ * DOM order: Search, Current weather, Forecast, Favorites. So the grid only sets the number of columns and the
+ * panels are placed by the browser's normal row-by-row flow. Do NOT add grid-column, grid-row, grid-area,
+ * order, grid-auto-flow: dense or any *-reverse direction to the panels: any of them can make the picture
+ * disagree with the tab order (test/ui/styles.test.ts fails if they appear).
+ *   wide (2 columns):       Search  | Current        extra-wide (3 columns):  Search    | Current | Forecast
+ *                           Forecast | Favorites                               Favorites |         |
+ */
+[data-layout='wide'].app,
+[data-layout='extra-wide'].app {
+  padding: 1.25rem;
+}
+
+[data-layout='wide'] .app-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* Extra-wide tier: three columns, bounded line length. */
+[data-layout='extra-wide'].app {
+  max-width: 1280px;
+}
+
+[data-layout='extra-wide'] .app-main {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* Panels in the same row start at the top instead of being stretched to the tallest one. */
+[data-layout='wide'] .app-main,
+[data-layout='extra-wide'] .app-main {
+  align-items: start;
+}
