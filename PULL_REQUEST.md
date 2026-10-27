@@ -1,8 +1,8 @@
-# Pull request draft: Weather application, initial version (0.0.0)
+# Weather application, initial version (0.0.0)
 
-> **LOCAL DRAFT ONLY. This is not a pull request.** Nothing was committed, pushed, merged, tagged, deployed or published, and no remote or GitHub integration was used. Publishing needs the user's separate, explicit authorization. TASK-046 (release readiness) is **not approved**. This draft must not be read as a statement that the app is ready to release.
+> **Status.** This branch (`feature/weather-app`) is pushed to the repository on top of a setup-only `main`. Nothing is merged, tagged, deployed or published, no GitHub workflow exists, and GitHub Pages is off. Publishing needs the user's separate, explicit authorization. TASK-046 (release readiness) is **not approved**. This description must not be read as a statement that the app is ready to release.
 >
-> **Scope note.** This pull request is the first feature branch (`feature/weather-app`) on top of a setup-only `main` (agent definitions and user story), so the diff is the whole application. Before the branch was created the project folder was not a git repository, so there was no earlier history to read. The content below is derived from the artifacts (`requirements.md`, `architecture.md`, `design-review.md`, `impl-plan.md`, `verification.md` Run 4, `docs/provider-checklist.md`, `docs/deployment.md`, `README.md`), `package.json` and the real file tree. The user approved drafting these two local files only (`impl-plan.md`, Section 4, "Approval for implementation" and the acceptances after Verifier Run 4).
+> **Scope note.** This pull request is the first feature branch (`feature/weather-app`) on top of a setup-only `main` (agent definitions and user story), so the diff is the whole application. Before the branch was created the project folder was not a git repository, so there was no earlier history to read. The content below is derived from the artifacts (`requirements.md`, `architecture.md`, `design-review.md`, `impl-plan.md`, `verification.md` Run 4, `docs/provider-checklist.md`, `docs/deployment.md`, `README.md`), `package.json` and the real file tree. The user approved the local commits and the push of both branches on 2026-10-27 (own messages in the session); merging, tagging, deployment and publishing are not approved.
 
 ## Summary
 
@@ -25,7 +25,7 @@ All items are new (initial version). See `CHANGELOG.md` for the grouped list. In
 
 ## Test Evidence
 
-**There is no CI, and the history is one feature commit on a setup-only `main`.** The evidence is the Verifier's Run 4 record, `verification.md` (started 2026-10-27 02:19 local, commands run in this folder). Earlier runs (1-3) are superseded and not cited. "Reported" means stated in an artifact; this draft did **not** re-run anything.
+**There is no CI, and the history is a setup-only `main` plus the commits on `feature/weather-app`.** The evidence is the Verifier's Run 4 record, `verification.md` (started 2026-10-27 02:19 local, commands run in this folder). Earlier runs (1-3) are superseded and not cited. "Reported" means stated in an artifact; this description did **not** re-run anything.
 
 ### What the Verifier ran (verification.md Run 4, section R4.1)
 
@@ -61,7 +61,7 @@ Verifier Run 4, section R4.3: loading text appeared within 10 ms in 18 of 18 act
 - No coverage report exists (none is configured); "all tests pass" is not line or branch coverage.
 - `npm run dev`, `npm run dev:demo` and `npm install` from a clean checkout were not run by the Verifier.
 - The hands-on manual end-to-end check of TASK-037 was not done; the user accepted the Verifier's automated real-API runs instead.
-- Tasks only **partially verified** by the Verifier: TASK-010, 025, 035, 037, 039, 040, 041, 045. TASK-044 (code review): the plan lists it as In Progress with independent review not done. Code Reviewer findings (M1 to M3, L1 to L5) are referred to in `impl-plan.md`, but no review report file exists in the repository root, so this draft cannot cite one.
+- Tasks only **partially verified** by the Verifier: TASK-010, 025, 035, 037, 039, 040, 041, 045. TASK-044 (code review): the plan lists it as In Progress with independent review not done. Code Reviewer findings (M1 to M3, L1 to L5) are referred to in `impl-plan.md`, but no review report file exists in the repository root, so this description cannot cite one.
 - The "hands-on" and "fresh reader" validations of the README were not done.
 
 ## Known Limitations and Risks
@@ -103,7 +103,7 @@ What the weather service (Open-Meteo) receives, per the in-app text next to "Use
 - Dev: `@playwright/test`, `vite`, `vitest`, `typescript`, `eslint` and plugins, `jsdom`, Testing Library, `axe-core`, `@vitejs/plugin-react` (full list in `package.json`).
 - External service: Open-Meteo Geocoding and Forecast APIs (free, keyless, non-commercial use).
 - Tooling: Node.js and npm (developed with Node v24, npm 11; other versions untested). `npm run test:browser` needs Microsoft Edge and Google Chrome installed (nothing is downloaded).
-- `npm audit`: 0 vulnerabilities in Run 4, single run; not repeated for this draft.
+- `npm audit`: 0 vulnerabilities in Run 4, single run; not repeated for this description.
 
 ## Manual Test Checklist (for the user)
 
@@ -128,8 +128,8 @@ Run `npm run dev` (live Open-Meteo) or `npm run build:release` then `npx vite pr
 
 ## NOT YET DONE
 
-- **Not committed, pushed, merged, tagged, deployed or published.** No repository history, no remote PR, no GitHub workflow, no GitHub Pages enabled. The expected URL `https://jayasri1515.github.io/claude-project/` is unverified.
-- **TASK-046 (release readiness) is not approved and is blocked.** This draft does not claim readiness.
+- **Not merged, tagged, deployed or published.** The branch is pushed (`main` is the setup-only commit `d906824`). No GitHub workflow and no GitHub Pages enabled. The expected URL `https://jayasri1515.github.io/claude-project/` is unverified.
+- **TASK-046 (release readiness) is not approved and is blocked.** This pull request does not claim readiness.
 - **Hosting decision and publish authorization**: GitHub Pages was named as the intended host (user answer C1), but publishing needs the user's separate explicit authorization.
 - **CORS check from the deployed https origin.**
 - **Confirmation from Open-Meteo** that the credit placement is acceptable; a fresh terms check for any commercial use.
