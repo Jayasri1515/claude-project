@@ -1,0 +1,19 @@
+{
+  "note": "Recorded responses from the real Open-Meteo APIs, used by the adapter unit tests so the default test suite never calls the live API. Bodies are unmodified except that the files were saved as returned by curl. Captured by the Implementer.",
+  "capturedOn": "2026-10-27 (local); server Date header 2026-10-26 18:55 to 18:56 GMT",
+  "sources": {
+    "geocoding": "https://geocoding-api.open-meteo.com/v1/search (documentation: https://open-meteo.com/en/docs/geocoding-api)",
+    "forecast": "https://api.open-meteo.com/v1/forecast (documentation: https://open-meteo.com/en/docs)"
+  },
+  "files": {
+    "geocoding-berlin.json": "GET /v1/search?name=Berlin&count=3&language=en&format=json (HTTP 200, three places named Berlin)",
+    "geocoding-springfield.json": "GET /v1/search?name=Springfield&count=5&language=en&format=json (HTTP 200, five places, same name)",
+    "geocoding-munich-unicode.json": "GET /v1/search?name=M%C3%BCnchen&count=2&language=en&format=json (HTTP 200, non-ASCII input; the provider returns English names)",
+    "geocoding-no-results.json": "GET /v1/search?name=Zzqxjkvvwpl&count=5&language=en&format=json (HTTP 200, no `results` key at all)",
+    "geocoding-error-400.json": "GET /v1/search?name=Berlin&count=0 (HTTP 400, { error: true, reason })",
+    "forecast-current.json": "GET /v1/forecast?latitude=52.52437&longitude=13.41053&current=temperature_2m,relative_humidity_2m,weather_code&timezone=auto (HTTP 200)",
+    "forecast-daily.json": "GET /v1/forecast?latitude=52.52437&longitude=13.41053&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=4 (HTTP 200; day 0 is the capture day)",
+    "forecast-error-400.json": "GET /v1/forecast?latitude=52.5&longitude=13.4&current=tempeture_2m&timezone=auto (HTTP 400, { error: true, reason })",
+    "forecast-error-bad-coords.json": "GET /v1/forecast?latitude=999&longitude=13.4&current=temperature_2m&timezone=auto (HTTP 400, { error: true, reason })"
+  }
+}
