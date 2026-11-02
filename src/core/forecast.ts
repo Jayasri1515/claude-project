@@ -2,14 +2,14 @@
  * Forecast shaping and last-updated helpers (architecture 3 and 4.6; FR-023,
  * FR-030, EC-011, EC-019, F-002). Pure functions, no I/O.
  */
-import type { ForecastDay, Section } from './domain';
+import type { Day, Section } from './domain';
 
 /**
  * One row of the forecast list. A missing day is an explicit 'unavailable'
- * slot rather than a ForecastDay with an invented date.
+ * slot rather than a Day with an invented date.
  */
 export type ForecastSlot =
-  | { readonly kind: 'day'; readonly day: ForecastDay }
+  | { readonly kind: 'day'; readonly day: Day }
   | { readonly kind: 'unavailable' };
 
 /**
@@ -17,7 +17,7 @@ export type ForecastSlot =
  * (the first `count` kept, order preserved) and missing days are padded with
  * 'unavailable' slots at the end. `count` comes from Config.forecastDays.
  */
-export function padForecast(days: readonly ForecastDay[], count: number): ForecastSlot[] {
+export function padForecast(days: readonly Day[], count: number): ForecastSlot[] {
   const wanted = Number.isInteger(count) && count > 0 ? count : 0;
   const slots: ForecastSlot[] = days.slice(0, wanted).map((day) => ({ kind: 'day', day }));
   while (slots.length < wanted) slots.push({ kind: 'unavailable' });
@@ -25,7 +25,7 @@ export function padForecast(days: readonly ForecastDay[], count: number): Foreca
 }
 
 /** Keep at most `count` days (no padding). Used before storing a forecast. */
-export function truncateForecast(days: readonly ForecastDay[], count: number): ForecastDay[] {
+export function truncateForecast(days: readonly Day[], count: number): Day[] {
   const wanted = Number.isInteger(count) && count > 0 ? count : 0;
   return days.slice(0, wanted);
 }

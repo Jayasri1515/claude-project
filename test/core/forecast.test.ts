@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { deriveLastUpdated, padForecast, truncateForecast } from '../../src/core/forecast';
-import type { ForecastDay } from '../../src/core/domain';
+import type { Day } from '../../src/core/domain';
 import { sampleForecast } from '../fixtures/domain';
 
-const days = (n: number): ForecastDay[] =>
-  Array.from({ length: n }, (_, i) => ({ date: `2026-01-0${i + 1}`, tempMaxC: i }));
+const days = (n: number): Day[] =>
+  Array.from({ length: n }, (_, i) => ({ localDate: `2026-01-0${i + 1}`, highCanonical: i }));
 
 describe('padForecast', () => {
   it.each([0, 1, 2, 3])('pads %i supplied days to 3 slots', (n) => {

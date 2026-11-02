@@ -14,7 +14,6 @@ import { formatHumidity, formatTemperature } from '../core/format';
 import { message } from '../core/messages';
 import { useRefreshAction, useViewState } from './context';
 import { ConditionView } from './ConditionView';
-import { formatPlace } from './formatPlace';
 import { LiveMessage } from './LiveMessage';
 import { focusById, SECTIONS } from './sections';
 import { sectionFailureText } from './sectionFailure';
@@ -47,7 +46,7 @@ export function CurrentWeatherCard() {
 
   return (
     <div className="weather-card" aria-busy={loading}>
-      <h3>{formatPlace(snapshot.location)}</h3>
+      <h3>{snapshot.label}</h3>
       {data === undefined && loading ? <p>{message('ui.loading')}</p> : null}
       {data === undefined && !loading && !failed ? (
         <p className="empty">{message('ui.current.notLoaded', { refresh: message('ui.refresh') })}</p>
@@ -56,7 +55,7 @@ export function CurrentWeatherCard() {
         <dl className="values">
           <div>
             <dt>{message('ui.label.temperature')}</dt>
-            <dd>{formatTemperature(data.temperatureC, temperatureUnit)}</dd>
+            <dd>{formatTemperature(data.tempCanonical,temperatureUnit)}</dd>
           </div>
           <div>
             <dt>{message('ui.label.humidity')}</dt>
@@ -65,7 +64,7 @@ export function CurrentWeatherCard() {
           <div>
             <dt>{message('ui.label.condition')}</dt>
             <dd>
-              <ConditionView condition={data.condition} text={data.conditionText} surface="current" isDay={data.isDay} />
+              <ConditionView condition={data.conditionCategory} text={undefined}surface="current" isDay={data.isDay} />
             </dd>
           </div>
         </dl>

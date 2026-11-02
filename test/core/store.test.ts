@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { serviceUnavailable } from '../../src/core/errors';
 import { createInitialState, favoriteAvailability, ViewStateStore } from '../../src/core/store';
-import type { WeatherSnapshot } from '../../src/core/domain';
+import type { WeatherView } from '../../src/core/domain';
 import { sampleLocation, sampleSnapshot } from '../fixtures/domain';
 
 describe('ViewStateStore subscription', () => {
@@ -98,7 +98,7 @@ describe('ViewStateStore snapshot retention', () => {
   it('a failed section update never erases prior data or its time', () => {
     const store = new ViewStateStore();
     store.setSnapshot(sampleSnapshot);
-    const failed: WeatherSnapshot = {
+    const failed: WeatherView = {
       ...sampleSnapshot,
       current: { status: 'error', error: serviceUnavailable() },
       forecast: sampleSnapshot.forecast,
@@ -123,16 +123,25 @@ describe('ViewStateStore snapshot retention', () => {
   it('a new success replaces the old data', () => {
     const store = new ViewStateStore();
     store.setSnapshot(sampleSnapshot);
-    store.setSnapshot({ ...sampleSnapshot, current: { status: 'ready', data: { temperatureC: 1 }, updatedAt: T } });
-    expect(store.getState().snapshot?.current.data).toEqual({ temperatureC: 1 });
+    store.setSnapshot({ ...sampleSnapshot, current: { status: 'ready', data: { tempCanonical: 1 }, updatedAt: T } });
+    expect(store.getState().snapshot?.current.data).toEqual({ tempCanonical: 1 });
+  });
+
+  it('keeps the time zone of the same city when a later view has none, and drops it for another city', () => {
+    const store = new ViewStateStore();
+    store.setSnapshot({ ...sampleSnapshot, timeZone: 'Europe/Oslo' });
+    store.setSnapshot({ ...sampleSnapshot, current: { status: 'loading' } });
+    expect(store.getState().snapshot?.timeZone).toBe('Europe/Oslo');
+    store.setSnapshot({ ...sampleSnapshot, key: 'test:other', label: 'Other' });
+    expect(store.getState().snapshot?.timeZone).toBeUndefined();
   });
 
   it('a different location replaces the snapshot entirely (no old city data under a new name)', () => {
     const store = new ViewStateStore();
     store.setSnapshot(sampleSnapshot);
     const other = { ...sampleLocation, key: 'test:other', name: 'Other' };
-    store.setSnapshot({ location: other, current: { status: 'loading' }, forecast: { status: 'loading' } });
-    expect(store.getState().snapshot?.location.key).toBe('test:other');
+    store.setSnapshot({ key: other.key, label: other.name, current: { status: 'loading' }, forecast: { status: 'loading' } });
+    expect(store.getState().snapshot?.key).toBe('test:other');
     expect(store.getState().snapshot?.current.data).toBeUndefined();
   });
 
@@ -140,8 +149,9 @@ describe('ViewStateStore snapshot retention', () => {
     const store = new ViewStateStore();
     store.setState({
       snapshot: {
-        location: sampleLocation,
-        current: { status: 'loading', data: { temperatureC: 3 } },
+        key: sampleLocation.key,
+        label: sampleLocation.name,
+        current: { status: 'loading', data: { tempCanonical: 3 } },
         forecast: { status: 'loading' },
       },
     });

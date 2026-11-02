@@ -2,7 +2,7 @@
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import type { ForecastDay, WeatherSnapshot } from '../../src/core/domain';
+import type { Day, WeatherView } from '../../src/core/domain';
 import { invalidResponse, networkError, serviceUnavailable } from '../../src/core/errors';
 import { formatForecastDate } from '../../src/core/format';
 import { createConfig } from '../../src/core/config';
@@ -10,8 +10,8 @@ import { sampleCurrent, sampleForecast, sampleSnapshot } from '../fixtures/domai
 import { renderWithFakeController } from './helpers';
 
 const updatedAt = new Date('2026-01-01T12:00:00Z');
-const withForecast = (forecast: WeatherSnapshot['forecast']): WeatherSnapshot => ({ ...sampleSnapshot, forecast });
-const readyDays = (days: ForecastDay[]) => withForecast({ status: 'ready', data: days, updatedAt });
+const withForecast = (forecast: WeatherView['forecast']): WeatherView => ({ ...sampleSnapshot, forecast });
+const readyDays = (days: Day[]) => withForecast({ status: 'ready', data: days, updatedAt });
 const region = () => screen.getByRole('region', { name: 'Forecast' });
 const rows = (): HTMLElement[] => within(region()).queryAllByRole('listitem');
 
@@ -49,7 +49,7 @@ describe('Forecast list (TASK-029)', () => {
     renderWithFakeController({
       snapshot: {
         ...sampleSnapshot,
-        current: { ...sampleSnapshot.current, data: { ...sampleCurrent, condition: 'CLEAR', isDay: false } },
+        current: { ...sampleSnapshot.current, data: { ...sampleCurrent, conditionCategory: 'CLEAR', isDay: false } },
       },
     });
     const icon = rows()[0]?.querySelector('svg.weather-icon');
@@ -58,7 +58,7 @@ describe('Forecast list (TASK-029)', () => {
   });
 
   it('shows a drizzle day with the Drizzle text and its icon', () => {
-    renderWithFakeController({ snapshot: readyDays([{ date: '2026-01-02', condition: 'DRIZZLE' }]) });
+    renderWithFakeController({ snapshot: readyDays([{ localDate: '2026-01-02', conditionCategory: 'DRIZZLE' }]) });
     expect(rows()[0]?.textContent).toContain('Drizzle');
     expect(rows()[0]?.querySelector('svg')?.classList.contains('lucide-cloud-drizzle')).toBe(true);
   });
@@ -81,14 +81,14 @@ describe('Forecast list (TASK-029)', () => {
   });
 
   it('more days than configured are not shown', () => {
-    const extra: ForecastDay = { date: '2026-01-05', tempMinC: 1, tempMaxC: 2, condition: 'SNOW' };
+    const extra: Day = { localDate: '2026-01-05', lowCanonical: 1, highCanonical: 2, conditionCategory: 'SNOW' };
     renderWithFakeController({ snapshot: readyDays([...sampleForecast, extra]) });
     expect(rows()).toHaveLength(3);
     expect(region().textContent).not.toContain('Snow');
   });
 
   it('a day with missing temperatures shows Unavailable for them', () => {
-    renderWithFakeController({ snapshot: readyDays([{ date: '2026-01-02', condition: 'FOG' }]) });
+    renderWithFakeController({ snapshot: readyDays([{ localDate: '2026-01-02', conditionCategory: 'FOG' }]) });
     expect(rows()[0]?.textContent).toContain('High Unavailable, Low Unavailable');
   });
 

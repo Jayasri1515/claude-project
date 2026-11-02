@@ -8,7 +8,7 @@
  * the device locale unless a locale is passed (ODD-11), except that forecast calendar dates are always English (Q27). All user-visible text
  * comes from the message table (`messages.ts`); this file holds no UI wording.
  */
-import type { ForecastDay, TemperatureUnit } from './domain';
+import type { Day, TemperatureUnit } from './domain';
 import { message } from './messages';
 import type { MessageId } from './messages';
 
@@ -80,13 +80,13 @@ export function formatLabeledHumidity(pct: number | undefined, options: FormatOp
 
 /** "High x, Low y" for a forecast day; each missing side shows Unavailable. */
 export function formatForecastRange(
-  day: Pick<ForecastDay, 'tempMaxC' | 'tempMinC'>,
+  day: Pick<Day, 'highCanonical' | 'lowCanonical'>,
   unit: TemperatureUnit,
   options: FormatOptions = {},
 ): string {
   return message('ui.forecastRange', {
-    high: message('ui.forecastHigh', { value: formatTemperature(day.tempMaxC, unit, options) }),
-    low: message('ui.forecastLow', { value: formatTemperature(day.tempMinC, unit, options) }),
+    high: message('ui.forecastHigh', { value: formatTemperature(day.highCanonical, unit, options) }),
+    low: message('ui.forecastLow', { value: formatTemperature(day.lowCanonical, unit, options) }),
   });
 }
 

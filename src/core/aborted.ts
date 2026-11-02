@@ -10,7 +10,17 @@ import type { Aborted } from './ports/locationService';
 export { ABORTED };
 export type { Aborted };
 
-/** Narrowing guard for any result union that includes the Aborted variant. */
+/**
+ * Narrowing guard for any result union that includes the Aborted variant.
+ *
+ * TEMPORARY BRIDGE (migration batch 2): at run time it also accepts the approved form, an `AppError` of kind
+ * 'aborted' (architecture 3.1), so callers need no change when a service switches over. The type still narrows only
+ * the legacy variant, because narrowing every error result away would hide real errors. A later batch removes the
+ * legacy `ABORTED` variant and narrows to the approved form.
+ */
 export function isAbortedResult<R extends { readonly ok: boolean }>(result: R): result is Extract<R, Aborted> {
-  return !result.ok && 'aborted' in result;
+  if (result.ok) return false;
+  if ('aborted' in result) return true;
+  const error = (result as { readonly error?: { readonly kind?: unknown } }).error;
+  return error?.kind === 'aborted';
 }

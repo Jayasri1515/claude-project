@@ -1,8 +1,9 @@
 /**
  * MANUAL live smoke check for the Open-Meteo adapters (npm run smoke:live). It is NOT part of `npm test`.
  *
- * It makes exactly three real HTTPS requests (one geocoding search, one current-weather request, one daily
- * forecast request, made the way the app makes it: today plus two days) through the real adapters and checks that the real responses parse into sensible domain
+ * It makes exactly three real HTTPS requests (one geocoding search, then one `WeatherProvider.get`, which sends one
+ * current-weather request and one daily forecast request, made the way the app makes them: the geocoded place's
+ * coordinates, today plus two days) through the real adapters and checks that the real responses parse into sensible domain
  * values. It asserts shapes and ranges only, never exact weather, so it keeps passing as the weather changes.
  * Do not run it in a loop or in CI: the free API is for non-commercial use with request limits
  * (https://open-meteo.com/en/terms). Nothing is stored; the output is a short summary on the console.
@@ -36,25 +37,7 @@ describe('live Open-Meteo smoke (3 real requests)', () => {
     console.log(`smoke: geocoding ok, first result ${place?.name}, ${place?.admin1 ?? '-'}, ${place?.country ?? '-'} (${place?.timezone ?? '-'})`);
   });
 
-  it('weather: current conditions for that place are Celsius, percent and a known condition code', async () => {
-    expect(place, 'the geocoding step must pass first').toBeDefined();
-    if (place === undefined) return;
-    const signal = new AbortController().signal;
-    const result = await new OpenMeteoWeatherProvider({ timeoutMs: TIMEOUT_MS }).getCurrent(place, signal);
-    expect(result.ok, JSON.stringify(result)).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.temperatureC).toBeGreaterThan(-90);
-    expect(result.value.temperatureC).toBeLessThan(60);
-    expect(result.value.humidityPct).toBeGreaterThanOrEqual(0);
-    expect(result.value.humidityPct).toBeLessThanOrEqual(100);
-    expect(CONDITION_CODES).toContain(result.value.condition);
-    expect(result.value.condition).not.toBe('UNKNOWN');
-    expect(typeof result.value.isDay, 'the provider must report is_day for the day/night icons').toBe('boolean');
-    expect(Math.abs((result.value.observedAt?.getTime() ?? 0) - Date.now())).toBeLessThan(3 * 60 * 60 * 1000);
-    console.log(`smoke: current ok, ${result.value.temperatureC} C, ${result.value.humidityPct} %, ${result.value.condition}, observed ${result.value.observedAt?.toISOString()}`);
-  });
-
-  it('weather: the forecast as the app requests it (today plus two days) has location-local dates and Celsius highs and lows', async () => {
+  it('weather: one get as the app makes it (today plus two days) has Celsius current values and location-local forecast dates', async () => {
     expect(place, 'the geocoding step must pass first').toBeDefined();
     if (place === undefined) return;
     expect(DEFAULT_CONFIG.forecastIncludesToday, 'the smoke test mirrors the app default').toBe(true);
@@ -63,25 +46,43 @@ describe('live Open-Meteo smoke (3 real requests)', () => {
     if (zone === undefined) return;
     const signal = new AbortController().signal;
     const todayBefore = todayIn(zone);
-    const result = await new OpenMeteoWeatherProvider({ timeoutMs: TIMEOUT_MS }).getForecast(
-      place,
-      DEFAULT_CONFIG.forecastDays,
-      DEFAULT_CONFIG.forecastIncludesToday,
-      signal,
-    );
+    // The adapter reads days and "includes today" from the same Config defaults the app passes it (composition).
+    const provider = new OpenMeteoWeatherProvider({
+      timeoutMs: TIMEOUT_MS,
+      coordinateDecimals: DEFAULT_CONFIG.coordinateDecimals,
+      forecastDays: DEFAULT_CONFIG.forecastDays,
+      forecastIncludesToday: DEFAULT_CONFIG.forecastIncludesToday,
+    });
+    const result = await provider.get({ lat: place.latitude, lon: place.longitude }, signal);
     const todayAfter = todayIn(zone);
     expect(result.ok, JSON.stringify(result)).toBe(true);
     if (!result.ok) return;
-    expect(result.value).toHaveLength(DEFAULT_CONFIG.forecastDays);
+    expect(result.value.timeZone, 'the response must carry its time zone').toBeTruthy();
+
+    const { current, forecast } = result.value;
+    expect(current.ok, JSON.stringify(current)).toBe(true);
+    if (!current.ok) return;
+    expect(current.value.tempCanonical).toBeGreaterThan(-90);
+    expect(current.value.tempCanonical).toBeLessThan(60);
+    expect(current.value.humidityPct).toBeGreaterThanOrEqual(0);
+    expect(current.value.humidityPct).toBeLessThanOrEqual(100);
+    expect(CONDITION_CODES).toContain(current.value.conditionCategory);
+    expect(current.value.conditionCategory).not.toBe('UNKNOWN');
+    expect(typeof current.value.isDay, 'the provider must report is_day for the day/night icons').toBe('boolean');
+    console.log(`smoke: current ok, ${current.value.tempCanonical} C, ${current.value.humidityPct} %, ${current.value.conditionCategory}`);
+
+    expect(forecast.ok, JSON.stringify(forecast)).toBe(true);
+    if (!forecast.ok) return;
+    expect(forecast.value).toHaveLength(DEFAULT_CONFIG.forecastDays);
     // The first day is today in the place's own zone (either side of a midnight rollover during the request).
-    expect([todayBefore, todayAfter]).toContain(result.value[0]?.date);
-    for (const day of result.value) {
-      expect(day.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(day.tempMaxC).toBeDefined();
-      expect(day.tempMinC).toBeDefined();
-      expect(day.tempMaxC ?? 0).toBeGreaterThanOrEqual(day.tempMinC ?? 0);
-      expect(CONDITION_CODES).toContain(day.condition);
+    expect([todayBefore, todayAfter]).toContain(forecast.value[0]?.localDate);
+    for (const day of forecast.value) {
+      expect(day.localDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(day.highCanonical).toBeDefined();
+      expect(day.lowCanonical).toBeDefined();
+      expect(day.highCanonical ?? 0).toBeGreaterThanOrEqual(day.lowCanonical ?? 0);
+      expect(CONDITION_CODES).toContain(day.conditionCategory);
     }
-    console.log(`smoke: forecast ok, dates ${result.value.map((d) => d.date).join(', ')}`);
+    console.log(`smoke: forecast ok, dates ${forecast.value.map((d) => d.localDate).join(', ')}, zone ${result.value.timeZone ?? '-'}`);
   });
 });

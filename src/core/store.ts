@@ -6,7 +6,7 @@
  * are told after the change. A listener that throws is isolated: the change
  * stays committed and the remaining listeners still run.
  */
-import type { Location, Section, TemperatureUnit, WeatherSnapshot } from './domain';
+import type { Location, Section, TemperatureUnit, WeatherView } from './domain';
 import type { AppError } from './errors';
 import type { MessageId } from './messages';
 
@@ -34,7 +34,7 @@ export interface ViewState {
    * thing that may be saved as a favorite. Undefined when unresolved.
    */
   readonly resolvedPlace?: Location;
-  readonly snapshot?: WeatherSnapshot;
+  readonly snapshot?: WeatherView;
   readonly search: SearchState;
   readonly locationFlow: LocationFlowState;
   readonly favorites: readonly Location[];
@@ -106,12 +106,13 @@ export class ViewStateStore {
    * without data keeps the previous data and time (retention rule); a different
    * location replaces the snapshot entirely.
    */
-  setSnapshot(next: WeatherSnapshot): void {
+  setSnapshot(next: WeatherView): void {
     const previous = this.state.snapshot;
-    const snapshot: WeatherSnapshot =
-      previous !== undefined && previous.location.key === next.location.key
+    const snapshot: WeatherView =
+      previous !== undefined && previous.key === next.key
         ? {
             ...next,
+            ...(next.timeZone === undefined && previous.timeZone !== undefined ? { timeZone: previous.timeZone } : {}),
             current: retainSection(previous.current, next.current),
             forecast: retainSection(previous.forecast, next.forecast),
           }

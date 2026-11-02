@@ -104,7 +104,7 @@ describe('Refresh control and last-updated text (TASK-030)', () => {
     expect(t.weather.forecastScript.callCount).toBe(2);
     expect(isDisabled(refreshButton())).toBe(true);
     await act(async () => {
-      t.weather.currentScript.resolveNext(ok({ temperatureC: 5 }));
+      t.weather.currentScript.resolveNext(ok({ tempCanonical: 5 }));
       t.weather.forecastScript.resolveNext(ok(sampleForecast));
     });
     await waitFor(() => expect(isDisabled(refreshButton())).toBe(false));
@@ -116,7 +116,7 @@ describe('Refresh control and last-updated text (TASK-030)', () => {
     await act(() => t.controller.chooseCandidate(city(1)));
     const before = lastUpdated();
     t.clock.advance(5 * 60_000);
-    t.weather.currentScript.respondWith(ok({ temperatureC: 30, humidityPct: 10, condition: 'CLEAR' }));
+    t.weather.currentScript.respondWith(ok({ tempCanonical: 30, humidityPct: 10, conditionCategory: 'CLEAR' }));
     await user.click(refreshButton());
     const current = screen.getByRole('region', { name: 'Current weather' });
     await waitFor(() => expect(within(current).getByText('30°C')).toBeTruthy());

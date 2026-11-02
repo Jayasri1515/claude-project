@@ -4,39 +4,54 @@
  * those ports, and are deleted with them (T-20, T-21, T-26, T-27, T-30..T-32). The approved-port fakes are
  * `FakeWeatherProvider`, `FakeGeocodingProvider` and `FakeLocationService`.
  */
-import type { CurrentWeather, ForecastDay, Location } from '../../src/core/domain';
-import { positionUnavailable } from '../../src/core/errors';
+import type { Coordinates, Current, Day, Location, WeatherResult } from '../../src/core/domain';
+import { aborted, positionUnavailable } from '../../src/core/errors';
 import type { AppError } from '../../src/core/errors';
 import { ABORTED } from '../../src/core/ports';
 import type {
   LegacyGeocodingProvider,
   LegacyLocationService,
-  LegacyWeatherProvider,
   PermissionState,
   PositionResult,
+  WeatherProvider,
 } from '../../src/core/ports';
 import { err, ok } from '../../src/core/result';
 import type { Result } from '../../src/core/result';
 import { ScriptedMethod } from './scripted';
 
-type CurrentResult = Result<CurrentWeather, AppError>;
-type ForecastResult = Result<ForecastDay[], AppError>;
+type CurrentResult = Result<Current, AppError>;
+type ForecastResult = Result<Day[], AppError>;
 
 /**
- * Controllable LegacyWeatherProvider. Defaults: empty current weather and an empty
- * forecast (every field missing). Held calls are not settled by an abort; the
- * test can inspect `call.aborted` and decide.
+ * Controllable approved WeatherProvider (`get`) that keeps the two-script API of the old fake. Each `get` call makes
+ * ONE call on `currentScript` and ONE on `forecastScript` (same coordinates, same signal) and answers when both have
+ * answered, so the sections arrive together (architecture 3.1) and either script can hold, fail or script its own
+ * section result. Defaults: empty current weather and an empty forecast (every field missing).
+ *
+ * - A section script answering `err(...)` becomes that section's error inside the `WeatherResult`.
+ * - A section script answering `err(aborted())` makes the whole call `err(aborted())`.
+ * - A section script that rejects (`failWith`) makes the whole call reject, like a provider that breaks its contract;
+ *   the service turns that into SERVICE_UNAVAILABLE on both sections.
+ * - Held calls are not settled by an abort; the test can inspect `call.aborted` and decide.
+ *
+ * TEMPORARY BRIDGE (migration batch 2): the name and the two scripts are kept so the existing tests keep working. A
+ * later batch can fold this into `FakeWeatherProvider` (`getScript`) and delete the class.
  */
-export class LegacyFakeWeatherProvider implements LegacyWeatherProvider {
-  readonly currentScript = new ScriptedMethod<[Location], CurrentResult>(ok({}));
-  readonly forecastScript = new ScriptedMethod<[Location, number, boolean], ForecastResult>(ok([]));
+export class LegacyFakeWeatherProvider implements WeatherProvider {
+  readonly currentScript = new ScriptedMethod<[Coordinates], CurrentResult>(ok({}));
+  readonly forecastScript = new ScriptedMethod<[Coordinates], ForecastResult>(ok([]));
+  /** Time zone reported with every answer (the real adapter reads it from the response). */
+  timeZone: string | undefined;
 
-  getCurrent(loc: Location, signal: AbortSignal): Promise<CurrentResult> {
-    return this.currentScript.invoke([loc], signal);
-  }
-
-  getForecast(loc: Location, days: number, includeToday: boolean, signal: AbortSignal): Promise<ForecastResult> {
-    return this.forecastScript.invoke([loc, days, includeToday], signal);
+  async get(coords: Coordinates, signal: AbortSignal): Promise<Result<WeatherResult, AppError>> {
+    const [current, forecast] = await Promise.all([
+      this.currentScript.invoke([coords], signal),
+      this.forecastScript.invoke([coords], signal),
+    ]);
+    if ((!current.ok && current.error.kind === 'aborted') || (!forecast.ok && forecast.error.kind === 'aborted')) {
+      return err(aborted());
+    }
+    return ok({ ...(this.timeZone !== undefined ? { timeZone: this.timeZone } : {}), current, forecast });
   }
 }
 

@@ -23,7 +23,7 @@ export function FavoritesPanel() {
   const state = useViewState();
   const availability = favoriteAvailability(state);
   const add = useGuardedAction(useCallback(() => controller.addFavorite(), [controller]));
-  const shownKey = state.snapshot?.location.key;
+  const shownKey = state.snapshot?.key;
   const listRef = useRef<HTMLUListElement>(null);
   /** Set when this panel's own add/remove control was used; only then may focus be moved. */
   const restore = useRef<{ index: number | undefined } | undefined>(undefined);

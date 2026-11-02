@@ -8,7 +8,7 @@ import type {
   KeyValueStore,
   LegacyLocationService,
   PositionResult,
-  LegacyWeatherProvider,
+  WeatherProvider,
 } from '../../src/core/ports';
 import { err, ok } from '../../src/core/result';
 import { sampleCurrent, sampleForecast, sampleLocation } from '../fixtures/domain';
@@ -32,16 +32,12 @@ describe('port interfaces', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('LegacyWeatherProvider has getCurrent and getForecast with abort signal', async () => {
-    const wp: LegacyWeatherProvider = {
-      getCurrent: async () => ok(sampleCurrent),
-      getForecast: async (_loc, days, includeToday) =>
-        ok(includeToday ? sampleForecast : sampleForecast.slice(0, days)),
+  it('WeatherProvider has one get(coordinates, signal) that returns both sections', async () => {
+    const wp: WeatherProvider = {
+      get: async () => ok({ timeZone: 'Etc/UTC', current: ok(sampleCurrent), forecast: ok(sampleForecast) }),
     };
-    const ac = new AbortController();
-    const cur = await wp.getCurrent(sampleLocation, ac.signal);
-    const fc = await wp.getForecast(sampleLocation, 2, false, ac.signal);
-    expect(cur.ok && fc.ok && fc.value.length).toBe(2);
+    const result = await wp.get({ lat: sampleLocation.latitude, lon: sampleLocation.longitude }, new AbortController().signal);
+    expect(result.ok && result.value.current.ok && result.value.forecast.ok && result.value.forecast.value.length).toBe(3);
   });
 
   it('LegacyLocationService exposes the permission states and typed position result, with no timeout argument', async () => {

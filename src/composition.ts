@@ -4,7 +4,7 @@
  * is injectable so tests can substitute fakes.
  *
  * Which data source is used (the mode):
- * - "live": both a LegacyGeocodingProvider and a LegacyWeatherProvider were injected.
+ * - "live": both a LegacyGeocodingProvider and a WeatherProvider were injected.
  *   `composeLive` (TASK-037) is what a normal build uses: it injects the real
  *   Open-Meteo adapters (src/adapters/openMeteo). Tests inject fakes instead.
  * - "unconfigured": `compose()` was called with no providers (only tests and
@@ -25,7 +25,7 @@ import { serviceUnavailable } from './core/errors';
 import { FavoritesService } from './core/favorites/favoritesService';
 import { LocationFlow } from './core/locationFlow';
 import { message } from './core/messages';
-import type { Clock, LegacyGeocodingProvider, KeyValueStore, LegacyLocationService, LegacyWeatherProvider } from './core/ports';
+import type { Clock, LegacyGeocodingProvider, KeyValueStore, LegacyLocationService, WeatherProvider } from './core/ports';
 import { err } from './core/result';
 import type { Result } from './core/result';
 import { SearchService } from './core/search';
@@ -40,7 +40,7 @@ export interface CompositionOptions {
   readonly keyValueStore?: KeyValueStore;
   readonly locationService?: LegacyLocationService;
   readonly geocoding?: LegacyGeocodingProvider;
-  readonly weather?: LegacyWeatherProvider;
+  readonly weather?: WeatherProvider;
   readonly clock?: Clock;
 }
 
@@ -66,12 +66,8 @@ class UnconfiguredGeocoding implements LegacyGeocodingProvider {
   }
 }
 
-class UnconfiguredWeather implements LegacyWeatherProvider {
-  getCurrent(): Promise<Result<never, AppError>> {
-    return Promise.resolve(err(serviceUnavailable()));
-  }
-
-  getForecast(): Promise<Result<never, AppError>> {
+class UnconfiguredWeather implements WeatherProvider {
+  get(): Promise<Result<never, AppError>> {
     return Promise.resolve(err(serviceUnavailable()));
   }
 }
@@ -85,7 +81,7 @@ export function compose(options: CompositionOptions = {}): Composition {
   const keyValueStore = options.keyValueStore ?? new LocalStorageStore();
   const locationService: LegacyLocationService = options.locationService ?? new BrowserLocationService();
   const geocoding: LegacyGeocodingProvider = options.geocoding ?? new UnconfiguredGeocoding();
-  const weatherProvider: LegacyWeatherProvider = options.weather ?? new UnconfiguredWeather();
+  const weatherProvider: WeatherProvider = options.weather ?? new UnconfiguredWeather();
 
   const store = new ViewStateStore();
   const controller = new AppController({
@@ -137,7 +133,12 @@ export function composeLive(options: LiveCompositionOptions = {}): Composition {
   const config = withLiveAttribution(options.config ?? createConfig());
   const { fetch, ...rest } = options;
   const adapterOptions = { timeoutMs: config.weatherTimeoutMs, ...(fetch !== undefined ? { fetch } : {}) };
-  const weatherOptions = { ...adapterOptions, coordinateDecimals: config.coordinateDecimals };
+  const weatherOptions = {
+    ...adapterOptions,
+    coordinateDecimals: config.coordinateDecimals,
+    forecastDays: config.forecastDays,
+    forecastIncludesToday: config.forecastIncludesToday,
+  };
   return compose({
     ...rest,
     config,

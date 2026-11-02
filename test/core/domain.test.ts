@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CONDITION_CODES } from '../../src/core/domain';
-import type { CurrentWeather, ForecastDay, Location, Section } from '../../src/core/domain';
+import type { Current, Day, Location, Section } from '../../src/core/domain';
 import { sampleCurrent, sampleForecast, sampleLocation, sampleSnapshot } from '../fixtures/domain';
 
 describe('domain model', () => {
@@ -26,12 +26,12 @@ describe('domain model', () => {
       longitude: 0,
       source: 'device',
     };
-    const emptyCurrent: CurrentWeather = {};
-    const emptyDay: ForecastDay = { date: '2026-01-02' };
-    const idle: Section<CurrentWeather> = { status: 'idle' };
+    const emptyCurrent: Current = {};
+    const emptyDay: Day = { localDate: '2026-01-02' };
+    const idle: Section<Current> = { status: 'idle' };
     expect(minimalLocation.country).toBeUndefined();
-    expect(emptyCurrent.temperatureC).toBeUndefined();
-    expect(emptyDay.tempMaxC).toBeUndefined();
+    expect(emptyCurrent.tempCanonical).toBeUndefined();
+    expect(emptyDay.highCanonical).toBeUndefined();
     expect(idle.updatedAt).toBeUndefined();
   });
 
@@ -40,6 +40,7 @@ describe('domain model', () => {
     expect(sampleCurrent.humidityPct).toBe(60);
     expect(sampleForecast).toHaveLength(3);
     expect(sampleSnapshot.current.status).toBe('ready');
-    expect(sampleSnapshot.location).toBe(sampleLocation);
+    expect(sampleSnapshot.key).toBe(sampleLocation.key);
+    expect(sampleSnapshot.label).toBe('Placeholder City, Testshire, Testland');
   });
 });

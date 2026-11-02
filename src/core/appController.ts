@@ -134,8 +134,9 @@ export class AppController {
   /** Re-fetch both sections for the displayed location. */
   refresh(): Promise<void> {
     return this.safely(async () => {
-      const snapshot = this.store.getState().snapshot;
-      if (snapshot === undefined) return;
+      const { snapshot, selectedLocation } = this.store.getState();
+      // The shown city's coordinates come from the selection, which always accompanies a shown view.
+      if (snapshot === undefined || selectedLocation === undefined || selectedLocation.key !== snapshot.key) return;
       // A search or pick is waiting for its answer: the snapshot on screen belongs to the previous city and the
       // new selection will load its own weather, so a refresh of the old city must not start (A-Q19, DR-18).
       if (this.searchToken === this.token) return;
@@ -145,7 +146,7 @@ export class AppController {
       // Same selection: not a new token, but cancelled if the selection changes.
       const token = this.token;
       // A result is applied only while the selection is unchanged and still shows the refreshed city (DR-18).
-      const shownKey = snapshot.location.key;
+      const shownKey = snapshot.key;
       const isCurrent = (): boolean => {
         const selected = this.store.getState().selectedLocation;
         return this.token === token && (selected === undefined || selected.key === shownKey);
@@ -153,7 +154,7 @@ export class AppController {
       const ticket: Ticket = { token, signal: this.abortController.signal, isCurrent };
       this.activeLoad = token;
       try {
-        const result = await this.weather.refresh(snapshot, {
+        const result = await this.weather.refresh(selectedLocation, snapshot, {
           signal: ticket.signal,
           onUpdate: (next) => {
             if (ticket.isCurrent()) this.store.setSnapshot(next);

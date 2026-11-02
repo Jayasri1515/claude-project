@@ -1,3 +1,5 @@
+import { OpenMeteoWeatherProvider } from '../../src/adapters/openMeteo/weather';
+import { fixtureResponse, stubFetch } from '../support/openMeteo';
 import {
   FakeClock,
   FakeGeocodingProvider,
@@ -12,6 +14,14 @@ import {
   locationServiceContract,
   weatherProviderContract,
 } from './portContracts';
+
+// The real Open-Meteo adapter is held to the same weather contract, over the recorded fixtures and a stub fetch.
+weatherProviderContract('OpenMeteoWeatherProvider (recorded fixtures)', () => {
+  const { fetch } = stubFetch((call) =>
+    fixtureResponse(new URL(call.url).searchParams.has('daily') ? 'forecast-daily.json' : 'forecast-current.json'),
+  );
+  return new OpenMeteoWeatherProvider({ fetch });
+});
 
 // The fakes are held to the same contract the real adapters will be (impl-plan T-13).
 weatherProviderContract('FakeWeatherProvider', () => new FakeWeatherProvider());

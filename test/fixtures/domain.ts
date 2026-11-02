@@ -1,12 +1,13 @@
 import type {
   Coordinates,
-  CurrentWeather,
-  ForecastDay,
+  Current,
+  Day,
   Location,
   Place,
   WeatherResult,
-  WeatherSnapshot,
+  WeatherView,
 } from '../../src/core/domain';
+import { placeLabel } from '../../src/core/placeLabel';
 import { ok } from '../../src/core/result';
 
 /** Shared fixtures for later tasks. Values are invented test data, not provider facts. */
@@ -42,22 +43,21 @@ export const sampleLocation: Location = {
   source: 'search',
 };
 
-export const sampleCurrent: CurrentWeather = {
-  temperatureC: 21.5,
+export const sampleCurrent: Current = {
+  tempCanonical: 21.5,
   humidityPct: 60,
-  condition: 'PARTLY_CLOUDY',
-  conditionText: 'Partly cloudy',
-  observedAt: new Date('2026-01-01T12:00:00Z'),
+  conditionCategory: 'PARTLY_CLOUDY',
 };
 
-export const sampleForecast: ForecastDay[] = [
-  { date: '2026-01-02', tempMinC: 10, tempMaxC: 20, condition: 'CLEAR' },
-  { date: '2026-01-03', tempMinC: 11, tempMaxC: 19, condition: 'RAIN' },
-  { date: '2026-01-04', tempMinC: 9, tempMaxC: 15, condition: 'CLOUDY' },
+export const sampleForecast: Day[] = [
+  { localDate: '2026-01-02', lowCanonical: 10, highCanonical: 20, conditionCategory: 'CLEAR' },
+  { localDate: '2026-01-03', lowCanonical: 11, highCanonical: 19, conditionCategory: 'RAIN' },
+  { localDate: '2026-01-04', lowCanonical: 9, highCanonical: 15, conditionCategory: 'CLOUDY' },
 ];
 
-export const sampleSnapshot: WeatherSnapshot = {
-  location: sampleLocation,
+export const sampleSnapshot: WeatherView = {
+  key: sampleLocation.key,
+  label: placeLabel(sampleLocation),
   current: { status: 'ready', data: sampleCurrent, updatedAt: new Date('2026-01-01T12:00:05Z') },
   forecast: { status: 'ready', data: sampleForecast, updatedAt: new Date('2026-01-01T12:00:05Z') },
 };

@@ -10,4 +10,4 @@ export type {
   PermissionState,
   PositionResult,
 } from './locationService';
-export type { LegacyWeatherProvider, WeatherProvider } from './weatherProvider';
+export type { WeatherProvider } from './weatherProvider';

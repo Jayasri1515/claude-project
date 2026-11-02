@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { notFound, serviceUnavailable } from '../../src/core/errors';
+import { aborted, notFound, serviceUnavailable } from '../../src/core/errors';
 import { isAborted } from '../../src/core/ports';
 import type {
   Clock,
@@ -7,12 +7,11 @@ import type {
   KeyValueStore,
   LegacyGeocodingProvider,
   LegacyLocationService,
-  LegacyWeatherProvider,
   LocationService,
   WeatherProvider,
 } from '../../src/core/ports';
 import { err, ok } from '../../src/core/result';
-import { sampleCoords, sampleCurrent, sampleForecast, sampleLocation, samplePlace, sampleWeatherResult } from '../fixtures/domain';
+import { sampleCoords, sampleCurrent, sampleLocation, samplePlace, sampleWeatherResult } from '../fixtures/domain';
 import {
   FakeClock,
   FakeGeocodingProvider,
@@ -38,9 +37,9 @@ describe('fakes satisfy their port types (compile-time) ', () => {
     expect([g, w, l, k, c]).toHaveLength(5);
   });
 
-  it('assigns the legacy fakes to the legacy ports', () => {
+  it('assigns the legacy fakes to their ports', () => {
     const g: LegacyGeocodingProvider = new LegacyFakeGeocodingProvider();
-    const w: LegacyWeatherProvider = new LegacyFakeWeatherProvider();
+    const w: WeatherProvider = new LegacyFakeWeatherProvider();
     const l: LegacyLocationService = new LegacyFakeLocationService();
     expect([g, w, l]).toHaveLength(3);
   });
@@ -255,16 +254,41 @@ describe('FakeLocationService', () => {
 });
 
 describe('legacy fakes (removed with the legacy ports in Phase 2)', () => {
-  it('LegacyFakeWeatherProvider scripts each method independently', async () => {
+  it('LegacyFakeWeatherProvider scripts each section independently and answers both together through get', async () => {
     const w = new LegacyFakeWeatherProvider();
     const ac = new AbortController();
-    expect(await w.getCurrent(sampleLocation, ac.signal)).toEqual(ok({}));
-    expect(await w.getForecast(sampleLocation, 3, false, ac.signal)).toEqual(ok([]));
+    const at = { lat: sampleLocation.latitude, lon: sampleLocation.longitude };
+    expect(await w.get(at, ac.signal)).toEqual(ok({ current: ok({}), forecast: ok([]) }));
     w.currentScript.respondWith(ok(sampleCurrent));
-    w.forecastScript.respondWith(ok(sampleForecast));
-    expect(await w.getCurrent(sampleLocation, ac.signal)).toEqual(ok(sampleCurrent));
-    expect(await w.getForecast(sampleLocation, 3, true, ac.signal)).toEqual(ok(sampleForecast));
-    expect(w.forecastScript.calls[1]?.args[2]).toBe(true);
+    w.forecastScript.respondWith(err(serviceUnavailable()));
+    w.timeZone = 'Europe/Oslo';
+    expect(await w.get(at, ac.signal)).toEqual(
+      ok({ timeZone: 'Europe/Oslo', current: ok(sampleCurrent), forecast: err(serviceUnavailable()) }),
+    );
+    expect(w.currentScript.callCount).toBe(2);
+    expect(w.forecastScript.calls[1]?.args[0]).toEqual(at);
+  });
+
+  it('LegacyFakeWeatherProvider.get waits for a held section, aborts as a whole and rejects when a script fails', async () => {
+    const w = new LegacyFakeWeatherProvider();
+    const at = { lat: 1, lon: 2 };
+    w.forecastScript.hold();
+    let done = false;
+    const pending = w.get(at, new AbortController().signal).then((r) => {
+      done = true;
+      return r;
+    });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    w.forecastScript.resolveNext(ok([]));
+    expect(await pending).toEqual(ok({ current: ok({}), forecast: ok([]) }));
+
+    w.forecastScript.release();
+    w.currentScript.respondWith(err(aborted()));
+    expect(await w.get(at, new AbortController().signal)).toEqual(err(aborted()));
+
+    w.currentScript.failWith(new Error('boom'));
+    await expect(w.get(at, new AbortController().signal)).rejects.toThrow('boom');
   });
 
   it('LegacyFakeGeocodingProvider searches and offers reverse only on request', async () => {

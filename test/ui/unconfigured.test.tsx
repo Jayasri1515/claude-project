@@ -81,7 +81,7 @@ describe('composition modes: live and unconfigured', () => {
     it('with no locationService injected, the real adapter reads the stubbed platform', async () => {
       const user = userEvent.setup();
       const weather = new LegacyFakeWeatherProvider();
-      weather.currentScript.respondWith(ok({ temperatureC: 1 }));
+      weather.currentScript.respondWith(ok({ tempCanonical: 1 }));
       const c = compose({ keyValueStore: new InMemoryKeyValueStore(), geocoding: new LegacyFakeGeocodingProvider(), weather });
       render(<App store={c.store} controller={c.controller} config={c.config} />);
       await user.click(screen.getByRole('button', { name: 'Use my location' }));

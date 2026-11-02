@@ -81,8 +81,8 @@ describe('labeled strings', () => {
   });
 
   it('forecast range shows high and low, each independently unavailable', () => {
-    expect(formatForecastRange({ tempMaxC: 20, tempMinC: 10 }, 'C', en)).toBe('High 20°C, Low 10°C');
-    expect(formatForecastRange({ tempMaxC: 20 }, 'C', en)).toBe('High 20°C, Low Unavailable');
+    expect(formatForecastRange({ highCanonical: 20, lowCanonical: 10 }, 'C', en)).toBe('High 20°C, Low 10°C');
+    expect(formatForecastRange({ highCanonical: 20 }, 'C', en)).toBe('High 20°C, Low Unavailable');
     expect(formatForecastRange({}, 'F', en)).toBe('High Unavailable, Low Unavailable');
   });
 });
@@ -190,8 +190,8 @@ describe('UI text lives only in the message table', () => {
       'short',
       'en', // the locale tag of the English-only forecast dates (Q27), not UI text
       // Property names used in a type-level Pick, not UI text.
-      'tempMaxC',
-      'tempMinC',
+      'highCanonical',
+      'lowCanonical',
     ]);
     const offenders = literals.filter(
       (text) => !allowed.has(text) && !/^(ui|error|condition)\.[A-Za-z.]+$/.test(text) && !/^\.\/[a-z]+$/.test(text),

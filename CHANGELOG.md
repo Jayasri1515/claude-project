@@ -26,6 +26,7 @@ No version number has been assigned and nothing has been released or published. 
 - **Supporting files.** `.env.example` (variable names only: `VITE_BASE`), `src/core/favorites/api.ts` (the approved favorites API; nothing implements it yet, see PULL_REQUEST.md), `src/ui/PickListCredit.tsx`, `src/ui/sectionFailure.ts`. Documents added to the working tree: `message-wording.md`, `provider-verification.md`, `conformance-review.md`, `test-triage.md`.
 
 ### Changed
+- **Current weather and forecast now appear together.** The weather adapter implements the approved single `get` (two parallel requests, two independent sections, location time zone) and the weather service builds one view from it, so the two sections no longer appear one after the other as each request finishes. Each section can still fail on its own and keeps its own message and previous data. The weather data types are now the approved `Current` and `Day`; the unused `observedAt` and provider condition text were dropped. Source: `src/adapters/openMeteo/weather.ts`, `src/core/weatherService.ts`.
 
 - **The forecast now starts with today.** `forecastIncludesToday` defaults to `true` (was `false`): the three forecast days are today and the next two, and the first row is labelled "Today" (M-30). Dates are shown in the location's time zone. Previously the forecast was three days after today.
 - **Weather requests are never served from the browser HTTP cache.** Every Open-Meteo request now sets `cache: 'no-store'`, so stale weather is not shown as fresh. Requests remain plain GETs with no custom headers, `credentials: 'omit'` and `referrerPolicy: 'no-referrer'`. Source: `src/adapters/openMeteo/http.ts`.
@@ -58,6 +59,6 @@ No version number has been assigned and nothing has been released or published. 
 ### Known limitations
 
 - `npm run smoke:live` failed twice on 2026-11-02 for network reasons (see PULL_REQUEST.md). No evidence exists for the current adapter code against the real Open-Meteo API.
-- The `Legacy*` ports are still the composed path. The approved port migration (impl-plan T-20..T-32) and the single-request weather call are not done.
+- The `Legacy*` ports for geocoding, search, favorites and the location flow are still the composed path. The approved port migration (impl-plan T-20..T-32) is partly done: the weather side is migrated (see Changed); search, favorites, location and the controller are not, and the work is paused after its second batch.
 - Manual checks T-70..T-75 (real devices, screen reader, zoom, Permissions API, CORS and the real rate-limit response) have not been run.
 - Not released: no version, no date, nothing committed, pushed or published.

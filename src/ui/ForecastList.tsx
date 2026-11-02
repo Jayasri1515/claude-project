@@ -58,12 +58,12 @@ export function ForecastList() {
         <ol className="forecast-list">
           {slots.map((slot, index) =>
             slot.kind === 'day' ? (
-              <li key={`${slot.day.date}-${index}`}>
+              <li key={`${slot.day.localDate}-${index}`}>
                 {index === 0 && config.forecastIncludesToday ? (
                   <span className="forecast-today">{message('ui.forecast.today')}</span>
                 ) : null}
-                <span className="forecast-date">{formatForecastDate(slot.day.date)}</span>
-                <ConditionView condition={slot.day.condition} text={slot.day.conditionText} surface="forecast" />
+                <span className="forecast-date">{formatForecastDate(slot.day.localDate)}</span>
+                <ConditionView condition={slot.day.conditionCategory} text={undefined}surface="forecast" />
                 <span className="forecast-range">{formatForecastRange(slot.day, temperatureUnit)}</span>
               </li>
             ) : (

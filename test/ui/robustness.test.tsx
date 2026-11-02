@@ -59,7 +59,7 @@ describe('one refresh guard for Refresh and both Retry buttons (L1, AC-P-03)', (
     expect(t.weather.currentScript.callCount).toBe(2);
     expect(t.weather.forecastScript.callCount).toBe(2);
     await act(async () => {
-      t.weather.currentScript.resolveNext(ok({ temperatureC: 5 }));
+      t.weather.currentScript.resolveNext(ok({ tempCanonical: 5 }));
       t.weather.forecastScript.resolveNext(ok(sampleForecast));
     });
     expect(within(current).getByRole('button', { name: 'Refresh' }).getAttribute('aria-disabled')).toBeNull();

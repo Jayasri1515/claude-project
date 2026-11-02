@@ -48,7 +48,7 @@ async function search(user: User, text: string): Promise<void> {
 
 /** Weather answers carry the city's latitude as the temperature, so tests can tell whose data is shown. */
 function tagWeatherByCity(t: Stack): void {
-  t.weather.currentScript.respondWith((loc) => ok({ temperatureC: loc.latitude, humidityPct: 50, condition: 'CLEAR' }));
+  t.weather.currentScript.respondWith((at) => ok({ tempCanonical: at.lat, humidityPct: 50, conditionCategory: 'CLEAR' }));
 }
 
 const oslo = city(1, { name: 'Oslo', admin1: 'Viken', country: 'Norway' });
@@ -63,7 +63,7 @@ describe('US-001 City search', () => {
     await waitFor(() => expect(values()).toEqual(['22°C', '60%', 'Partly cloudy']));
     expect(rows()).toHaveLength(3);
     expect(t.geocoding.searchScript.calls[0]?.args[0]).toBe('Oslo');
-    expect(t.weather.currentScript.calls[0]?.args[0].key).toBe(oslo.key);
+    expect(t.weather.currentScript.calls[0]?.args[0]).toEqual({ lat: oslo.latitude, lon: oslo.longitude });
   });
 
   it('AC-001-2: city name and country are shown when available, and no country when absent', async () => {
@@ -240,7 +240,7 @@ describe('US-003 Current weather', () => {
 
   it('AC-003-4 / EC-010: incomplete data shows the available values and marks the missing one Unavailable (never 0)', async () => {
     const t = renderStack();
-    t.weather.currentScript.respondWith(ok({ temperatureC: 0, condition: 'CLEAR' }));
+    t.weather.currentScript.respondWith(ok({ tempCanonical: 0, conditionCategory: 'CLEAR' }));
     await act(() => t.controller.chooseCandidate(oslo));
     expect(values()).toEqual(['0°C', 'Unavailable', 'Clear']);
   });
@@ -252,7 +252,7 @@ describe('US-003 Current weather', () => {
     await act(() => t.controller.chooseCandidate(oslo));
     expect(within(current()).getByText(/weather service is unavailable/)).toBeTruthy();
     expect(rows()).toHaveLength(3);
-    t.weather.currentScript.respondWith(ok({ temperatureC: 3, humidityPct: 4, condition: 'SNOW' }));
+    t.weather.currentScript.respondWith(ok({ tempCanonical: 3, humidityPct: 4, conditionCategory: 'SNOW' }));
     await user.click(within(current()).getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(values()).toEqual(['3°C', '4%', 'Snow']));
   });
@@ -304,15 +304,15 @@ describe('US-005 Manual refresh', () => {
     const before = lastUpdated();
     expect(before).not.toBe('');
     t.clock.advance(10 * 60_000);
-    t.weather.currentScript.respondWith(ok({ temperatureC: 30, humidityPct: 10, condition: 'CLEAR' }));
+    t.weather.currentScript.respondWith(ok({ tempCanonical: 30, humidityPct: 10, conditionCategory: 'CLEAR' }));
     t.weather.forecastScript.respondWith(ok(sampleForecast.slice(0, 2)));
     await user.click(refreshButton());
     await waitFor(() => expect(values()[0]).toBe('30°C'));
     await waitFor(() => expect(rows()[2]?.textContent).toBe('Unavailable'));
     expect(t.weather.currentScript.callCount).toBe(2);
     expect(t.weather.forecastScript.callCount).toBe(2);
-    expect(t.weather.currentScript.calls[1]?.args[0].key).toBe(oslo.key);
-    expect(t.weather.forecastScript.calls[1]?.args[0].key).toBe(oslo.key);
+    expect(t.weather.currentScript.calls[1]?.args[0]).toEqual({ lat: oslo.latitude, lon: oslo.longitude });
+    expect(t.weather.forecastScript.calls[1]?.args[0]).toEqual({ lat: oslo.latitude, lon: oslo.longitude });
     expect(lastUpdated()).toBe(formatLastUpdated(new Date(t.clock.now())));
     expect(lastUpdated()).not.toBe(before);
   });
@@ -330,7 +330,7 @@ describe('US-005 Manual refresh', () => {
     expect(t.weather.forecastScript.pending).toHaveLength(1);
     expect(isDisabled(refreshButton())).toBe(true);
     await act(async () => {
-      t.weather.currentScript.resolveNext(ok({ temperatureC: 1 }));
+      t.weather.currentScript.resolveNext(ok({ tempCanonical: 1 }));
       t.weather.forecastScript.resolveNext(ok(sampleForecast));
     });
     await waitFor(() => expect(isDisabled(refreshButton())).toBe(false));
@@ -356,7 +356,7 @@ describe('US-005 Manual refresh', () => {
     const t = renderStack();
     await act(() => t.controller.chooseCandidate(oslo));
     t.clock.advance(10 * 60_000);
-    t.weather.currentScript.respondWith(ok({ temperatureC: 40, humidityPct: 1, condition: 'FOG' }));
+    t.weather.currentScript.respondWith(ok({ tempCanonical: 40, humidityPct: 1, conditionCategory: 'FOG' }));
     t.weather.forecastScript.respondWith(err(serviceUnavailable()));
     await user.click(refreshButton());
     await waitFor(() => expect(values()[0]).toBe('40°C'));
@@ -499,7 +499,7 @@ describe('Races (F-001, F-007, NFR-001)', () => {
     expect(within(current()).getByRole('heading', { name: 'Oslo, Viken, Norway' })).toBeTruthy();
     await waitFor(() => expect(values()[0]).toBe('1°C'));
     expect(screen.queryByRole('heading', { name: 'Current location' })).toBeNull();
-    expect(t.weather.currentScript.calls.some((c) => c.args[0].latitude === 77)).toBe(false);
+    expect(t.weather.currentScript.calls.some((c) => c.args[0].lat === 77)).toBe(false);
   });
 
   it('a slow device-location result from a port that ignores the cancellation is still discarded when it arrives after a city search', async () => {
@@ -527,7 +527,7 @@ describe('Races (F-001, F-007, NFR-001)', () => {
     expect(within(current()).getByRole('heading', { name: 'Oslo, Viken, Norway' })).toBeTruthy();
     expect(values()[0]).toBe('1°C');
     expect(screen.queryByRole('heading', { name: 'Current location' })).toBeNull();
-    expect(t.weather.currentScript.calls.some((c) => c.args[0].latitude === 77)).toBe(false);
+    expect(t.weather.currentScript.calls.some((c) => c.args[0].lat === 77)).toBe(false);
   });
 
   it('slow weather for city A that arrives after city B was selected is discarded', async () => {
@@ -540,12 +540,12 @@ describe('Races (F-001, F-007, NFR-001)', () => {
       void t.controller.chooseCandidate(a);
     });
     await waitFor(() => expect(t.weather.currentScript.pending).toHaveLength(1)); // A's request is outstanding
-    expect(t.weather.currentScript.pending[0]?.args[0].name).toBe('Alpha');
+    expect(t.weather.currentScript.pending[0]?.args[0]).toEqual({ lat: a.latitude, lon: a.longitude }); // Alpha
     t.weather.currentScript.release();
     await act(() => t.controller.chooseCandidate(b));
-    expect(t.weather.currentScript.pending.map((c) => c.args[0].name)).toEqual(['Alpha']); // still only A's
+    expect(t.weather.currentScript.pending.map((c) => c.args[0].lat)).toEqual([a.latitude]); // still only A's (Alpha)
     await act(async () => {
-      t.weather.currentScript.pending.forEach((c) => c.resolve(ok({ temperatureC: 99, humidityPct: 99, condition: 'FOG' })));
+      t.weather.currentScript.pending.forEach((c) => c.resolve(ok({ tempCanonical: 99, humidityPct: 99, conditionCategory: 'FOG' })));
     });
     expect(t.weather.currentScript.pending).toHaveLength(0); // A's late answer (99) was delivered and ignored
     expect(within(current()).getByRole('heading', { name: 'Beta, R, L' })).toBeTruthy();

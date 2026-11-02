@@ -1,4 +1,4 @@
-import type { Coordinates, CurrentWeather, ForecastDay, Location, WeatherResult } from '../domain';
+import type { Coordinates, WeatherResult } from '../domain';
 import type { AppError } from '../errors';
 import type { Result } from '../result';
 
@@ -14,18 +14,4 @@ import type { Result } from '../result';
  */
 export interface WeatherProvider {
   get(coords: Coordinates, signal: AbortSignal): Promise<Result<WeatherResult, AppError>>;
-}
-
-/**
- * LEGACY two-method port (pre-approval architecture 5.2) still used by `weatherService.ts` and the Open-Meteo adapter
- * until T-20 and T-30 replace them. Remove with those tasks.
- */
-export interface LegacyWeatherProvider {
-  getCurrent(loc: Location, signal: AbortSignal): Promise<Result<CurrentWeather, AppError>>;
-  getForecast(
-    loc: Location,
-    days: number,
-    includeToday: boolean,
-    signal: AbortSignal,
-  ): Promise<Result<ForecastDay[], AppError>>;
 }

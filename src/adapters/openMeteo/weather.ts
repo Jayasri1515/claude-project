@@ -1,5 +1,5 @@
 /**
- * LegacyWeatherProvider over the Open-Meteo Forecast API (TASK-023).
+ * WeatherProvider over the Open-Meteo Forecast API (TASK-023, impl-plan T-30).
  *
  * Endpoint, parameters, units and response shape were checked against the
  * official documentation on 2026-10-27 (https://open-meteo.com/en/docs; see
@@ -16,8 +16,7 @@
  *
  * No API key is used. `timezone=auto` makes the response (daily dates, the
  * `current.time` stamp, `timezone`, `utc_offset_seconds`) follow the location's
- * own time zone: forecast dates are the location's calendar dates, and
- * `observedAt` is the real instant (the local stamp minus the reported UTC offset).
+ * own time zone: forecast dates are the location's calendar dates.
  *
  * Normalization: Celsius is requested explicitly and a response that reports any
  * other unit is rejected, so values stay in Celsius and percent. A missing, null
@@ -26,20 +25,19 @@
  * block, unusable `daily.time`) is SERVICE_UNAVAILABLE.
  */
 import { DEFAULT_CONFIG, MAX_PROVIDER_FORECAST_DAYS } from '../../core/config';
-import type { CurrentWeather, ForecastDay, Location } from '../../core/domain';
-import { invalidResponse, serviceUnavailable } from '../../core/errors';
+import type { Coordinates, Current, Day, WeatherResult } from '../../core/domain';
+import { aborted, invalidResponse, serviceUnavailable } from '../../core/errors';
 import type { AppError } from '../../core/errors';
-import type { LegacyWeatherProvider } from '../../core/ports';
+import type { WeatherProvider } from '../../core/ports';
 import { err, ok } from '../../core/result';
 import type { Result } from '../../core/result';
 import { mapWeatherCode } from './conditionCodes';
-import { defaultFetch, finiteNumber, getJson, isRecord } from './http';
+import { defaultFetch, finiteNumber, getJson, isRecord, nonEmptyString } from './http';
 import type { FetchLike, OpenMeteoOptions } from './http';
 
 export const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast';
 const CELSIUS = '°C';
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const LOCAL_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/;
 
 /**
  * Coordinates are rounded to `Config.coordinateDecimals` (2) before they are sent (impl-plan L2, user-approved 2026-10-27).
@@ -62,11 +60,11 @@ export function roundCoordinate(value: number, decimals: number = DEFAULT_CONFIG
   return rounded === 0 ? 0 : rounded; // turns -0 into 0
 }
 
-function baseUrl(loc: Location, decimals: number): URL | undefined {
-  if (!Number.isFinite(loc.latitude) || !Number.isFinite(loc.longitude)) return undefined;
+function baseUrl(latitude: number, longitude: number, decimals: number): URL | undefined {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
   const url = new URL(FORECAST_URL);
-  url.searchParams.set('latitude', String(roundCoordinate(loc.latitude, decimals)));
-  url.searchParams.set('longitude', String(roundCoordinate(loc.longitude, decimals)));
+  url.searchParams.set('latitude', String(roundCoordinate(latitude, decimals)));
+  url.searchParams.set('longitude', String(roundCoordinate(longitude, decimals)));
   url.searchParams.set('timezone', 'auto');
   url.searchParams.set('temperature_unit', 'celsius');
   return url;
@@ -79,19 +77,7 @@ function wrongUnit(units: unknown, name: string, expected: string): boolean {
   return unit !== undefined && unit !== expected;
 }
 
-/** "2026-10-26T19:45" in a zone with the given UTC offset, as a real instant. */
-function observedInstant(time: unknown, offsetSeconds: number | undefined): Date | undefined {
-  if (typeof time !== 'string' || offsetSeconds === undefined) return undefined;
-  const m = LOCAL_TIME_PATTERN.exec(time);
-  if (m === null) return undefined;
-  const [, year, month, day, hour, minute, second] = m;
-  const ms =
-    Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second ?? 0)) -
-    offsetSeconds * 1000;
-  return Number.isNaN(ms) ? undefined : new Date(ms);
-}
-
-export function parseCurrent(body: unknown): Result<CurrentWeather, AppError> {
+export function parseCurrent(body: unknown): Result<Current, AppError> {
   if (!isRecord(body)) return err(invalidResponse());
   if (body['error'] === true) return err(serviceUnavailable());
   const current = body['current'];
@@ -101,21 +87,18 @@ export function parseCurrent(body: unknown): Result<CurrentWeather, AppError> {
     return err(invalidResponse());
   }
 
-  const temperatureC = finiteNumber(current['temperature_2m']);
+  const tempCanonical = finiteNumber(current['temperature_2m']);
   const humidity = finiteNumber(current['relative_humidity_2m']);
   const humidityPct = humidity !== undefined && humidity >= 0 && humidity <= 100 ? humidity : undefined;
   const mapped = mapWeatherCode(current['weather_code']);
-  const observedAt = observedInstant(current['time'], finiteNumber(body['utc_offset_seconds']));
   // `is_day` is 1 by day and 0 at night; anything else leaves the flag absent (the UI then shows the neutral form).
   const isDay = current['is_day'] === 1 ? true : current['is_day'] === 0 ? false : undefined;
 
   return ok({
-    ...(temperatureC !== undefined ? { temperatureC } : {}),
+    ...(tempCanonical !== undefined ? { tempCanonical } : {}),
     ...(humidityPct !== undefined ? { humidityPct } : {}),
-    ...(mapped !== undefined ? { condition: mapped.condition } : {}),
-    ...(mapped?.text !== undefined ? { conditionText: mapped.text } : {}),
+    ...(mapped !== undefined ? { conditionCategory: mapped.condition } : {}),
     ...(isDay !== undefined ? { isDay } : {}),
-    ...(observedAt !== undefined ? { observedAt } : {}),
   });
 }
 
@@ -123,7 +106,7 @@ export function parseCurrent(body: unknown): Result<CurrentWeather, AppError> {
  * The days in the response, in order. With `dropFirst` the first entry (today in the location's zone)
  * is left out; the caller limits the day count.
  */
-export function parseDaily(body: unknown, dropFirst = false): Result<ForecastDay[], AppError> {
+export function parseDaily(body: unknown, dropFirst = false): Result<Day[], AppError> {
   if (!isRecord(body)) return err(invalidResponse());
   if (body['error'] === true) return err(serviceUnavailable());
   const daily = body['daily'];
@@ -139,69 +122,119 @@ export function parseDaily(body: unknown, dropFirst = false): Result<ForecastDay
   const mins = column('temperature_2m_min');
   const codes = column('weather_code');
 
-  const days: ForecastDay[] = [];
-  times.forEach((date, index) => {
+  const days: Day[] = [];
+  times.forEach((localDate, index) => {
     if (dropFirst && index === 0) return;
-    if (typeof date !== 'string' || !DATE_PATTERN.test(date)) return; // a day without a date cannot be shown
-    const tempMaxC = finiteNumber(maxes[index]);
-    const tempMinC = finiteNumber(mins[index]);
+    if (typeof localDate !== 'string' || !DATE_PATTERN.test(localDate)) return; // a day without a date cannot be shown
+    const highCanonical = finiteNumber(maxes[index]);
+    const lowCanonical = finiteNumber(mins[index]);
     const mapped = mapWeatherCode(codes[index]);
     days.push({
-      date,
-      ...(tempMinC !== undefined ? { tempMinC } : {}),
-      ...(tempMaxC !== undefined ? { tempMaxC } : {}),
-      ...(mapped !== undefined ? { condition: mapped.condition } : {}),
-      ...(mapped?.text !== undefined ? { conditionText: mapped.text } : {}),
+      localDate,
+      ...(lowCanonical !== undefined ? { lowCanonical } : {}),
+      ...(highCanonical !== undefined ? { highCanonical } : {}),
+      ...(mapped !== undefined ? { conditionCategory: mapped.condition } : {}),
     });
   });
   return ok(days);
 }
 
-export class OpenMeteoWeatherProvider implements LegacyWeatherProvider {
+export interface OpenMeteoWeatherOptions extends OpenMeteoOptions {
+  readonly coordinateDecimals?: number;
+  /** Days the approved `get` asks for. Defaults to `Config.forecastDays`. */
+  readonly forecastDays?: number;
+  /** Whether day 0 (today at the location) is one of them. Defaults to `Config.forecastIncludesToday`. */
+  readonly forecastIncludesToday?: boolean;
+}
+
+/** The two raw (unparsed) provider answers of one weather request. */
+type Raw = Result<unknown, AppError>;
+
+export class OpenMeteoWeatherProvider implements WeatherProvider {
   private readonly fetchFn: FetchLike;
   private readonly timeoutMs: number | undefined;
   private readonly coordinateDecimals: number;
+  private readonly forecastDays: number;
+  private readonly forecastIncludesToday: boolean;
 
-  constructor(options: OpenMeteoOptions & { readonly coordinateDecimals?: number } = {}) {
+  constructor(options: OpenMeteoWeatherOptions = {}) {
     this.fetchFn = options.fetch ?? defaultFetch;
     this.timeoutMs = options.timeoutMs;
     this.coordinateDecimals = options.coordinateDecimals ?? DEFAULT_CONFIG.coordinateDecimals;
+    this.forecastDays = options.forecastDays ?? DEFAULT_CONFIG.forecastDays;
+    this.forecastIncludesToday = options.forecastIncludesToday ?? DEFAULT_CONFIG.forecastIncludesToday;
   }
 
-  async getCurrent(loc: Location, signal: AbortSignal): Promise<Result<CurrentWeather, AppError>> {
+  /**
+   * Approved port (architecture 3.1, DR-19). Two parallel requests under the same signal, one per section. Each
+   * request maps to its own section result; only when BOTH fail does the whole call fail (with the first error,
+   * the current-conditions one). A caller abort settles as `aborted`.
+   */
+  async get(coords: Coordinates, signal: AbortSignal): Promise<Result<WeatherResult, AppError>> {
     try {
-      const url = baseUrl(loc, this.coordinateDecimals);
-      if (url === undefined) return err(serviceUnavailable());
-      url.searchParams.set('current', 'temperature_2m,relative_humidity_2m,weather_code,is_day');
-      const response = await getJson(url.toString(), { fetch: this.fetchFn, timeoutMs: this.timeoutMs, signal });
-      return response.ok ? parseCurrent(response.value) : response;
+      if (signal.aborted) return err(aborted());
+      const wanted = this.wantedDays(this.forecastDays);
+      const [currentRaw, dailyRaw] = await Promise.all([
+        this.requestCurrent(coords.lat, coords.lon, signal),
+        wanted < 1
+          ? Promise.resolve<Raw>(ok({ daily: { time: [] } }))
+          : this.requestDaily(coords.lat, coords.lon, wanted, this.forecastIncludesToday, signal),
+      ]);
+      if (signal.aborted || isAborted(currentRaw) || isAborted(dailyRaw)) return err(aborted());
+
+      const current = currentRaw.ok ? parseCurrent(currentRaw.value) : currentRaw;
+      const parsedDaily = dailyRaw.ok ? parseDaily(dailyRaw.value, !this.forecastIncludesToday) : dailyRaw;
+      const forecast = parsedDaily.ok ? ok(parsedDaily.value.slice(0, Math.max(wanted, 0))) : parsedDaily;
+      if (!current.ok && !forecast.ok) return err(current.error);
+
+      const timeZone = (currentRaw.ok ? zoneOf(currentRaw.value) : undefined) ?? (dailyRaw.ok ? zoneOf(dailyRaw.value) : undefined);
+      return ok({ ...(timeZone !== undefined ? { timeZone } : {}), current, forecast });
     } catch {
       return err(serviceUnavailable());
     }
   }
 
-  async getForecast(
-    loc: Location,
-    days: number,
+  private wantedDays(days: number): number {
+    return Number.isFinite(days) ? Math.trunc(days) : 0;
+  }
+
+  private async requestCurrent(latitude: number, longitude: number, signal: AbortSignal): Promise<Raw> {
+    try {
+      const url = baseUrl(latitude, longitude, this.coordinateDecimals);
+      if (url === undefined) return err(serviceUnavailable());
+      url.searchParams.set('current', 'temperature_2m,relative_humidity_2m,weather_code,is_day');
+      return await getJson(url.toString(), { fetch: this.fetchFn, timeoutMs: this.timeoutMs, signal });
+    } catch {
+      return err(serviceUnavailable());
+    }
+  }
+
+  private async requestDaily(
+    latitude: number,
+    longitude: number,
+    wanted: number,
     includeToday: boolean,
     signal: AbortSignal,
-  ): Promise<Result<ForecastDay[], AppError>> {
+  ): Promise<Raw> {
     try {
-      const wanted = Number.isFinite(days) ? Math.trunc(days) : 0;
-      if (wanted < 1) return ok([]);
-      const url = baseUrl(loc, this.coordinateDecimals);
+      const url = baseUrl(latitude, longitude, this.coordinateDecimals);
       if (url === undefined) return err(serviceUnavailable());
       // Day 0 of the response is today in the location's zone. Without today, ask for one more day and drop it.
       const requested = Math.min(MAX_PROVIDER_FORECAST_DAYS, includeToday ? wanted : wanted + 1);
       url.searchParams.set('daily', 'weather_code,temperature_2m_max,temperature_2m_min');
       url.searchParams.set('forecast_days', String(requested));
-      const response = await getJson(url.toString(), { fetch: this.fetchFn, timeoutMs: this.timeoutMs, signal });
-      if (!response.ok) return response;
-
-      const parsed = parseDaily(response.value, !includeToday);
-      return parsed.ok ? ok(parsed.value.slice(0, wanted)) : parsed;
+      return await getJson(url.toString(), { fetch: this.fetchFn, timeoutMs: this.timeoutMs, signal });
     } catch {
       return err(serviceUnavailable());
     }
   }
+}
+
+function isAborted(result: Raw): boolean {
+  return !result.ok && result.error.kind === 'aborted';
+}
+
+/** The IANA `timezone` of a response body, when present. */
+function zoneOf(body: unknown): string | undefined {
+  return isRecord(body) && body['error'] !== true ? nonEmptyString(body['timezone']) : undefined;
 }

@@ -1,52 +1,55 @@
 /**
- * Weather Service (C6, architecture 4.6 and Flow C).
+ * Weather Service (C6, architecture 4.6 and Flow C; impl-plan T-20).
  *
- * Loads current weather and forecast for a Location in parallel with
- * independent section status, records a per-section `updatedAt` from the Clock
- * on each successful fetch, keeps previous data on failure, allows at most one
- * in-flight request per (location, operation), applies `weatherTimeoutMs`, and
- * never retries automatically.
+ * Loads current weather and forecast for a Location with ONE `WeatherProvider.get` call. The two sections arrive
+ * together but succeed or fail independently: a section error inside the result stays on that section only, and a
+ * whole-call failure (transport, timeout, rate limit) puts the same error on both. A per-section `updatedAt` is taken
+ * from the Clock on each successful section, previous data and time are kept on failure, `weatherTimeoutMs` applies to
+ * the call, and nothing is retried automatically.
  *
- * Staleness: the caller (App Controller) owns the selection token. When the
- * selection changes it aborts the AbortSignal it passed in. The service then
- * aborts the provider calls, discards their results and returns ABORTED with no
- * further `onUpdate` calls.
+ * Single-flight is the controller's job (`AppController.activeLoad`, architecture 3.7): it aborts the superseded
+ * load before a new one starts and ignores a refresh while one is running, so the service keeps no per-key map.
+ *
+ * Staleness: the caller (App Controller) owns the selection token. When the selection changes it aborts the
+ * AbortSignal it passed in. The service then aborts the provider call, discards its result and returns ABORTED with
+ * no further `onUpdate` calls. (ABORTED is the legacy form; a later batch replaces it by an AppError of kind
+ * 'aborted'.)
+ *
+ * The service produces no user text: errors are `AppError` values, and the view's `label` is the place name only.
  */
 import type { Aborted } from './aborted';
-import { ABORTED, isAbortedResult } from './aborted';
+import { ABORTED } from './aborted';
 import type { Config } from './config';
-import type { ForecastDay, Location, Section, WeatherSnapshot } from './domain';
+import type { Coordinates, Current, Day, Location, Section, WeatherResult, WeatherView } from './domain';
 import { serviceUnavailable, timeoutError } from './errors';
 import type { AppError } from './errors';
 import { padForecast, truncateForecast } from './forecast';
 import type { ForecastSlot } from './forecast';
-import type { Clock, LegacyWeatherProvider } from './ports';
+import { placeLabel } from './placeLabel';
+import type { Clock, WeatherProvider } from './ports';
 import { err, ok } from './result';
 import type { Ok, Result } from './result';
 
-export type WeatherLoadResult = Ok<WeatherSnapshot> | Aborted;
+export type WeatherLoadResult = Ok<WeatherView> | Aborted;
 
 export interface WeatherRequestContext {
   /** Aborted by the caller when the selection changes (superseded work). */
   readonly signal: AbortSignal;
   /**
-   * Called with the working snapshot when loading starts and after each section
-   * settles, so the UI can render sections as they resolve. Never called after
-   * the signal aborts. If a request is joined by single-flight, only the first
-   * caller's callback is used.
+   * Called with the working view when loading starts and when the answer arrives, so the UI can show the loading
+   * state. Never called after the signal aborts.
    */
-  readonly onUpdate?: (snapshot: WeatherSnapshot) => void;
+  readonly onUpdate?: (view: WeatherView) => void;
 }
 
 export type WeatherServiceConfig = Pick<Config, 'weatherTimeoutMs' | 'forecastDays' | 'forecastIncludesToday'>;
 
 export interface WeatherServiceDeps {
-  readonly provider: LegacyWeatherProvider;
+  readonly provider: WeatherProvider;
   readonly clock: Clock;
   readonly config: WeatherServiceConfig;
 }
 
-type Operation = 'load' | 'refresh';
 type GuardedResult<T> = Result<T, AppError> | Aborted;
 
 /** Section without keys whose value is undefined, so equality checks stay strict. */
@@ -62,11 +65,25 @@ function makeSection<T>(
   };
 }
 
+function viewOf(
+  location: Location,
+  timeZone: string | undefined,
+  current: Section<Current>,
+  forecast: Section<Day[]>,
+): WeatherView {
+  return {
+    key: location.key,
+    label: placeLabel(location),
+    ...(timeZone !== undefined ? { timeZone } : {}),
+    current,
+    forecast,
+  };
+}
+
 export class WeatherService {
-  private readonly provider: LegacyWeatherProvider;
+  private readonly provider: WeatherProvider;
   private readonly clock: Clock;
   private readonly config: WeatherServiceConfig;
-  private readonly inFlight = new Map<string, Promise<WeatherLoadResult>>();
 
   constructor(deps: WeatherServiceDeps) {
     this.provider = deps.provider;
@@ -76,120 +93,83 @@ export class WeatherService {
 
   /** Load weather for a newly selected location (no previous data is kept). */
   load(location: Location, context: WeatherRequestContext): Promise<WeatherLoadResult> {
-    return this.start('load', location, undefined, context);
+    return this.execute(location, undefined, context);
   }
 
   /**
-   * Refresh the location of `previous`. A section that fails keeps its previous
-   * data and previous `updatedAt` (FR-029).
+   * Refresh `location`, which `previous` shows. A section that fails keeps its previous data and previous
+   * `updatedAt` (FR-029).
    */
-  refresh(previous: WeatherSnapshot, context: WeatherRequestContext): Promise<WeatherLoadResult> {
-    return this.start('refresh', previous.location, previous, context);
+  refresh(location: Location, previous: WeatherView, context: WeatherRequestContext): Promise<WeatherLoadResult> {
+    return this.execute(location, previous, context);
   }
 
   /** Forecast rows for display: exactly `forecastDays` slots, padded with 'unavailable'. */
-  forecastSlots(snapshot: WeatherSnapshot): ForecastSlot[] {
-    return padForecast(snapshot.forecast.data ?? [], this.config.forecastDays);
-  }
-
-  private start(
-    operation: Operation,
-    location: Location,
-    previous: WeatherSnapshot | undefined,
-    context: WeatherRequestContext,
-  ): Promise<WeatherLoadResult> {
-    if (context.signal.aborted) return Promise.resolve(ABORTED);
-
-    const key = `${operation}|${location.key}`;
-    const existing = this.inFlight.get(key);
-    if (existing !== undefined) return existing; // single-flight (FR-028, AC-P-03)
-
-    const promise: Promise<WeatherLoadResult> = this.execute(location, previous, context).finally(() => {
-      if (this.inFlight.get(key) === promise) this.inFlight.delete(key);
-    });
-    this.inFlight.set(key, promise);
-    // A superseded request must not be joined by a later, legitimate one.
-    context.signal.addEventListener(
-      'abort',
-      () => {
-        if (this.inFlight.get(key) === promise) this.inFlight.delete(key);
-      },
-      { once: true },
-    );
-    return promise;
+  forecastSlots(view: WeatherView): ForecastSlot[] {
+    return padForecast(view.forecast.data ?? [], this.config.forecastDays);
   }
 
   private async execute(
     location: Location,
-    previous: WeatherSnapshot | undefined,
+    previous: WeatherView | undefined,
     context: WeatherRequestContext,
   ): Promise<WeatherLoadResult> {
-    const kept = previous !== undefined && previous.location.key === location.key ? previous : undefined;
     const { signal } = context;
-
-    let snapshot: WeatherSnapshot = {
-      location,
-      current: makeSection('loading', { data: kept?.current.data, updatedAt: kept?.current.updatedAt }),
-      forecast: makeSection('loading', { data: kept?.forecast.data, updatedAt: kept?.forecast.updatedAt }),
-    };
-    const emit = (): void => {
-      if (!signal.aborted) context.onUpdate?.(snapshot);
-    };
-    emit();
-
-    let currentSucceeded = false;
-    let forecastSucceeded = false;
-
-    const currentRun = this.guarded((s) => this.provider.getCurrent(location, s), signal).then((outcome) => {
-      if (signal.aborted || isAbortedResult(outcome)) return;
-      currentSucceeded = outcome.ok;
-      snapshot = { ...snapshot, current: this.applyOutcome(snapshot.current, outcome) };
-      emit();
-    });
-
-    const forecastRun = this.guarded(
-      (s) => this.provider.getForecast(location, this.config.forecastDays, this.config.forecastIncludesToday, s),
-      signal,
-    ).then((outcome) => {
-      if (signal.aborted || isAbortedResult(outcome)) return;
-      forecastSucceeded = outcome.ok;
-      const shaped: Result<ForecastDay[], AppError> = outcome.ok
-        ? ok(truncateForecast(outcome.value, this.config.forecastDays))
-        : outcome;
-      snapshot = { ...snapshot, forecast: this.applyOutcome(snapshot.forecast, shaped) };
-      emit();
-    });
-
-    await Promise.all([currentRun, forecastRun]);
     if (signal.aborted) return ABORTED;
 
-    // After a fully successful run both sections share one time: the older of
-    // the two, so freshness is never overstated (FR-027, FR-030).
-    const a = snapshot.current.updatedAt;
-    const b = snapshot.forecast.updatedAt;
-    if (currentSucceeded && forecastSucceeded && a !== undefined && b !== undefined && a.getTime() !== b.getTime()) {
-      const older = a.getTime() < b.getTime() ? a : b;
-      snapshot = {
-        ...snapshot,
-        current: { ...snapshot.current, updatedAt: older },
-        forecast: { ...snapshot.forecast, updatedAt: older },
-      };
-      emit();
-    }
-    return ok(snapshot);
+    const kept = previous !== undefined && previous.key === location.key ? previous : undefined;
+    const coords: Coordinates = { lat: location.latitude, lon: location.longitude };
+
+    const loading = viewOf(
+      location,
+      kept?.timeZone,
+      makeSection('loading', { data: kept?.current.data, updatedAt: kept?.current.updatedAt }),
+      makeSection('loading', { data: kept?.forecast.data, updatedAt: kept?.forecast.updatedAt }),
+    );
+    context.onUpdate?.(loading);
+
+    const outcome = await this.guarded((s) => this.provider.get(coords, s), signal);
+    if (signal.aborted || (!outcome.ok && 'aborted' in outcome)) return ABORTED;
+
+    // One clock reading for the whole answer: when both sections succeed they share one time.
+    const now = this.clock.now();
+    const settled = outcome.ok ? this.applyResult(loading, outcome.value, now) : this.applyFailure(loading, outcome.error);
+    context.onUpdate?.(settled);
+    return ok(settled);
   }
 
-  /** Section state after a settled fetch. A failure keeps prior data and time. */
-  private applyOutcome<T>(previous: Section<T>, outcome: Result<T, AppError>): Section<T> {
-    if (outcome.ok) return makeSection('ready', { data: outcome.value, updatedAt: this.clock.now() });
-    return makeSection('error', { error: outcome.error, data: previous.data, updatedAt: previous.updatedAt });
+  /** Both sections after a whole-call failure: error on each, previous data and time kept (FR-029). */
+  private applyFailure(loading: WeatherView, error: AppError): WeatherView {
+    return {
+      ...loading,
+      current: makeSection('error', { error, data: loading.current.data, updatedAt: loading.current.updatedAt }),
+      forecast: makeSection('error', { error, data: loading.forecast.data, updatedAt: loading.forecast.updatedAt }),
+    };
+  }
+
+  /** Sections after an answer: each is ready or error on its own. A failed section keeps prior data and time. */
+  private applyResult(loading: WeatherView, result: WeatherResult, now: Date): WeatherView {
+    const current: Section<Current> = result.current.ok
+      ? makeSection('ready', { data: result.current.value, updatedAt: now })
+      : makeSection('error', {
+          error: result.current.error,
+          data: loading.current.data,
+          updatedAt: loading.current.updatedAt,
+        });
+    const forecast: Section<Day[]> = result.forecast.ok
+      ? makeSection('ready', { data: truncateForecast(result.forecast.value, this.config.forecastDays), updatedAt: now })
+      : makeSection('error', {
+          error: result.forecast.error,
+          data: loading.forecast.data,
+          updatedAt: loading.forecast.updatedAt,
+        });
+    return { ...loading, ...(result.timeZone !== undefined ? { timeZone: result.timeZone } : {}), current, forecast };
   }
 
   /**
-   * Run one provider call under the weather timeout and the caller's signal.
-   * Each call has its own AbortController so a timeout on one section does not
-   * abort the other. The race also guarantees a settle if the provider ignores
-   * the signal. A throwing or rejecting provider becomes SERVICE_UNAVAILABLE.
+   * Run the provider call under the weather timeout and the caller's signal.
+   * The race also guarantees a settle if the provider ignores the signal. A throwing or rejecting provider becomes
+   * SERVICE_UNAVAILABLE.
    */
   private async guarded<T>(
     call: (signal: AbortSignal) => Promise<Result<T, AppError>>,

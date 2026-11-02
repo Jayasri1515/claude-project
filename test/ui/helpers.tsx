@@ -79,7 +79,7 @@ export function createStack(options: StackOptions = {}) {
   const weather = new LegacyFakeWeatherProvider();
   const location = new LegacyFakeLocationService(options.permission ?? 'prompt');
   const clock = new FakeClock();
-  weather.currentScript.respondWith(ok({ temperatureC: 21.5, humidityPct: 60, condition: 'PARTLY_CLOUDY' }));
+  weather.currentScript.respondWith(ok({ tempCanonical: 21.5, humidityPct: 60, conditionCategory: 'PARTLY_CLOUDY' }));
   weather.forecastScript.respondWith(ok(sampleForecast));
   const composition = compose({
     config: options.config ?? createConfig(),

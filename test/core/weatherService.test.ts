@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isAbortedResult } from '../../src/core/aborted';
 import { createConfig } from '../../src/core/config';
-import type { CurrentWeather, ForecastDay, WeatherSnapshot } from '../../src/core/domain';
-import { aborted, rateLimited, serviceUnavailable } from '../../src/core/errors';
+import type { Current, Day, WeatherView } from '../../src/core/domain';
+import { aborted, networkError, rateLimited, serviceUnavailable } from '../../src/core/errors';
 import { deriveLastUpdated } from '../../src/core/forecast';
 import { err, ok } from '../../src/core/result';
 import { WeatherService } from '../../src/core/weatherService';
@@ -25,17 +25,19 @@ function setup(overrides = {}) {
   return { provider, clock, service, ctx };
 }
 
-async function done(p: ReturnType<WeatherService['load']>): Promise<WeatherSnapshot> {
+async function done(p: ReturnType<WeatherService['load']>): Promise<WeatherView> {
   const r = await p;
   if (isAbortedResult(r)) throw new Error('unexpected abort');
   return r.value;
 }
 
-/** A snapshot as left by an earlier successful load. */
-const previousSnapshot = (): WeatherSnapshot => ({
-  location: sampleLocation,
-  current: { status: 'ready', data: { temperatureC: 5 }, updatedAt: T0 },
-  forecast: { status: 'ready', data: [{ date: '2026-01-02', tempMaxC: 6 }], updatedAt: T0 },
+/** A view as left by an earlier successful load. */
+const previousSnapshot = (): WeatherView => ({
+  key: sampleLocation.key,
+  label: 'Placeholder City, Testshire, Testland',
+  timeZone: 'Europe/Oslo',
+  current: { status: 'ready', data: { tempCanonical: 5 }, updatedAt: T0 },
+  forecast: { status: 'ready', data: [{ localDate: '2026-01-02', highCanonical: 6 }], updatedAt: T0 },
 });
 
 /** Let queued promise callbacks run (real timers only). */
@@ -56,7 +58,27 @@ describe('WeatherService load', () => {
     expect(deriveLastUpdated(snap.current, snap.forecast)).toEqual(T0);
   });
 
-  it('when the sections finish at different times, both get the older time', async () => {
+  it('the view carries the location key and display label, and the time zone of the answer', async () => {
+    const { provider, service, ctx } = setup();
+    provider.timeZone = 'Europe/Oslo';
+    const snap = await done(service.load(sampleLocation, ctx()));
+    expect(snap.key).toBe(sampleLocation.key);
+    expect(snap.label).toBe('Placeholder City, Testshire, Testland');
+    expect(snap.timeZone).toBe('Europe/Oslo');
+    const without = new LegacyFakeWeatherProvider();
+    const other = new WeatherService({ provider: without, clock: new FakeClock(T0), config: createConfig() });
+    expect(await done(other.load(sampleLocation, ctx()))).not.toHaveProperty('timeZone');
+  });
+
+  it('asks the provider once, with the exact coordinates of the location (rounding is the adapter\'s job)', async () => {
+    const { provider, service, ctx } = setup();
+    const exact = { ...sampleLocation, latitude: 33.123456, longitude: -44.654321 };
+    await done(service.load(exact, ctx()));
+    expect(provider.currentScript.calls.map((c) => c.args)).toEqual([[{ lat: 33.123456, lon: -44.654321 }]]);
+    expect(provider.forecastScript.calls.map((c) => c.args)).toEqual([[{ lat: 33.123456, lon: -44.654321 }]]);
+  });
+
+  it('both sections get the same updatedAt: the clock is read when the one answer arrives', async () => {
     const { provider, clock, service, ctx } = setup();
     provider.currentScript.hold();
     provider.forecastScript.hold();
@@ -64,19 +86,19 @@ describe('WeatherService load', () => {
     clock.set(T0);
     provider.currentScript.resolveNext(ok(sampleCurrent));
     await flush();
+    // The forecast is still outstanding: nothing has arrived yet, so no time was taken.
     clock.set(T1);
     provider.forecastScript.resolveNext(ok(sampleForecast));
     const snap = await done(p);
-    expect(snap.current.updatedAt).toEqual(T0);
-    expect(snap.forecast.updatedAt).toEqual(T0);
+    expect(snap.current.updatedAt).toEqual(T1);
+    expect(snap.forecast.updatedAt).toEqual(T1);
   });
 
-  it('requests the configured days with today as the first day (Config.forecastIncludesToday = true), and stores at most forecastDays', async () => {
+  it('stores at most forecastDays; the days and "today" choice are the provider\'s request, not the service\'s', async () => {
     const { provider, service, ctx } = setup();
-    const five: ForecastDay[] = Array.from({ length: 5 }, (_, i) => ({ date: `2026-01-0${i + 1}` }));
+    const five: Day[] = Array.from({ length: 5 }, (_, i) => ({ localDate: `2026-01-0${i + 1}` }));
     provider.forecastScript.respondWith(ok(five));
     const snap = await done(service.load(sampleLocation, ctx()));
-    expect(provider.forecastScript.calls[0]?.args).toEqual([sampleLocation, 3, true]);
     expect(snap.forecast.data).toHaveLength(3);
   });
 
@@ -90,15 +112,15 @@ describe('WeatherService load', () => {
 
   it('missing provider fields stay undefined (no defaults invented)', async () => {
     const { provider, service, ctx } = setup();
-    provider.currentScript.respondWith(ok({ condition: 'CLEAR' } as CurrentWeather));
-    provider.forecastScript.respondWith(ok([{ date: '2026-01-02' }]));
+    provider.currentScript.respondWith(ok({ conditionCategory: 'CLEAR' } as Current));
+    provider.forecastScript.respondWith(ok([{ localDate: '2026-01-02' }]));
     const snap = await done(service.load(sampleLocation, ctx()));
-    expect(snap.current.data?.temperatureC).toBeUndefined();
+    expect(snap.current.data?.tempCanonical).toBeUndefined();
     expect(snap.current.data?.humidityPct).toBeUndefined();
-    expect(snap.forecast.data?.[0]?.tempMaxC).toBeUndefined();
+    expect(snap.forecast.data?.[0]?.highCanonical).toBeUndefined();
   });
 
-  it('first load failing leaves an error section with no data or time', async () => {
+  it('first load failing in one section leaves an error section with no data or time; the other is ready', async () => {
     const { provider, service, ctx } = setup();
     provider.currentScript.respondWith(err(serviceUnavailable()));
     const snap = await done(service.load(sampleLocation, ctx()));
@@ -110,11 +132,24 @@ describe('WeatherService load', () => {
     expect(deriveLastUpdated(snap.current, snap.forecast)).toBeUndefined();
   });
 
-  it('a provider that throws becomes a section error, not a rejection', async () => {
+  it('a whole-call failure (provider error result) puts the same error on both sections, with no data or time', async () => {
+    const { ctx } = setup();
+    const failing = new WeatherService({
+      provider: { get: async () => err(networkError()) },
+      clock: new FakeClock(T0),
+      config: createConfig(),
+    });
+    const snap = await done(failing.load(sampleLocation, ctx()));
+    expect(snap.current).toEqual({ status: 'error', error: networkError() });
+    expect(snap.forecast).toEqual({ status: 'error', error: networkError() });
+  });
+
+  it('a provider that throws becomes SERVICE_UNAVAILABLE on both sections, not a rejection', async () => {
     const { provider, service, ctx } = setup();
     provider.currentScript.failWith(new Error('boom'));
     const snap = await done(service.load(sampleLocation, ctx()));
     expect(snap.current.error?.kind).toBe('service');
+    expect(snap.forecast.error?.kind).toBe('service');
   });
 
   it('a signal that is already aborted makes no provider call', async () => {
@@ -125,7 +160,7 @@ describe('WeatherService load', () => {
     expect(provider.currentScript.callCount + provider.forecastScript.callCount).toBe(0);
   });
 
-  it('reports progress per section via onUpdate', async () => {
+  it('reports loading first and then both sections together via onUpdate (no section arrives alone)', async () => {
     const { provider, service } = setup();
     provider.forecastScript.hold();
     const seen: Array<[string, string]> = [];
@@ -135,11 +170,13 @@ describe('WeatherService load', () => {
       onUpdate: (s) => seen.push([s.current.status, s.forecast.status]),
     });
     await flush();
-    expect(seen[0]).toEqual(['loading', 'loading']);
-    expect(seen).toContainEqual(['ready', 'loading']);
+    expect(seen).toEqual([['loading', 'loading']]); // the current section alone does not show while the forecast is outstanding
     provider.forecastScript.resolveNext(ok(sampleForecast));
     await p;
-    expect(seen[seen.length - 1]).toEqual(['ready', 'ready']);
+    expect(seen).toEqual([
+      ['loading', 'loading'],
+      ['ready', 'ready'],
+    ]);
   });
 });
 
@@ -157,11 +194,11 @@ describe('WeatherService rate limit and provider aborts', () => {
     const { provider, service, ctx } = setup();
     provider.currentScript.respondWith(err(aborted()));
     provider.forecastScript.respondWith(ok(sampleForecast));
-    const seen: WeatherSnapshot[] = [];
+    const seen: WeatherView[] = [];
     const r = await service.load(sampleLocation, { ...ctx(), onUpdate: (s) => seen.push(s) });
-    // The current section never settles into an error; no snapshot carries an aborted error.
+    // The load is discarded; no view carries an aborted error.
+    expect(isAbortedResult(r)).toBe(true);
     expect(seen.every((s) => s.current.error === undefined && s.forecast.error === undefined)).toBe(true);
-    if (!isAbortedResult(r)) expect(r.value.current.error?.kind).not.toBe('aborted');
   });
 
   it('the caller aborting mid-load returns the discard outcome with no further updates', async () => {
@@ -169,7 +206,7 @@ describe('WeatherService rate limit and provider aborts', () => {
     const context = ctx();
     provider.currentScript.hold();
     provider.forecastScript.hold();
-    const updates: WeatherSnapshot[] = [];
+    const updates: WeatherView[] = [];
     const p = service.load(sampleLocation, { ...context, onUpdate: (s) => updates.push(s) });
     await flush(); // both provider calls are now outstanding
     const before = updates.length;
@@ -185,9 +222,9 @@ describe('WeatherService refresh and partial failure', () => {
     clock.set(T1);
     provider.currentScript.respondWith(err(serviceUnavailable()));
     provider.forecastScript.respondWith(ok(sampleForecast));
-    const snap = await done(service.refresh(previousSnapshot(), ctx()));
+    const snap = await done(service.refresh(sampleLocation, previousSnapshot(), ctx()));
     expect(snap.current.status).toBe('error');
-    expect(snap.current.data).toEqual({ temperatureC: 5 });
+    expect(snap.current.data).toEqual({ tempCanonical: 5 });
     expect(snap.current.updatedAt).toEqual(T0);
     expect(snap.forecast).toEqual({ status: 'ready', data: sampleForecast, updatedAt: T1 });
     expect(deriveLastUpdated(snap.current, snap.forecast)).toEqual(T0);
@@ -198,10 +235,10 @@ describe('WeatherService refresh and partial failure', () => {
     clock.set(T1);
     provider.currentScript.respondWith(ok(sampleCurrent));
     provider.forecastScript.respondWith(err(serviceUnavailable()));
-    const snap = await done(service.refresh(previousSnapshot(), ctx()));
+    const snap = await done(service.refresh(sampleLocation, previousSnapshot(), ctx()));
     expect(snap.current).toEqual({ status: 'ready', data: sampleCurrent, updatedAt: T1 });
     expect(snap.forecast.status).toBe('error');
-    expect(snap.forecast.data).toEqual([{ date: '2026-01-02', tempMaxC: 6 }]);
+    expect(snap.forecast.data).toEqual([{ localDate: '2026-01-02', highCanonical: 6 }]);
     expect(snap.forecast.updatedAt).toEqual(T0);
     expect(deriveLastUpdated(snap.current, snap.forecast)).toEqual(T0);
   });
@@ -212,7 +249,7 @@ describe('WeatherService refresh and partial failure', () => {
     provider.currentScript.respondWith(err(serviceUnavailable()));
     provider.forecastScript.respondWith(err(serviceUnavailable()));
     const prev = previousSnapshot();
-    const snap = await done(service.refresh(prev, ctx()));
+    const snap = await done(service.refresh(sampleLocation, prev, ctx()));
     expect(snap.current.data).toEqual(prev.current.data);
     expect(snap.forecast.data).toEqual(prev.forecast.data);
     expect(snap.current.updatedAt).toEqual(T0);
@@ -221,50 +258,54 @@ describe('WeatherService refresh and partial failure', () => {
     expect(snap.forecast.status).toBe('error');
   });
 
+  it('a whole-call failure on refresh keeps previous data, times and time zone on both sections', async () => {
+    const { clock, ctx } = setup();
+    clock.set(T1);
+    const failing = new WeatherService({
+      provider: { get: async () => err(networkError()) },
+      clock,
+      config: createConfig(),
+    });
+    const prev = previousSnapshot();
+    const snap = await done(failing.refresh(sampleLocation, prev, ctx()));
+    expect(snap.current).toEqual({ status: 'error', error: networkError(), data: prev.current.data, updatedAt: T0 });
+    expect(snap.forecast).toEqual({ status: 'error', error: networkError(), data: prev.forecast.data, updatedAt: T0 });
+    expect(snap.timeZone).toBe('Europe/Oslo');
+  });
+
+  it('a refresh answer without a time zone keeps the one already known; a new one replaces it', async () => {
+    const { provider, service, ctx } = setup();
+    expect((await done(service.refresh(sampleLocation, previousSnapshot(), ctx()))).timeZone).toBe('Europe/Oslo');
+    provider.timeZone = 'Europe/Berlin';
+    expect((await done(service.refresh(sampleLocation, previousSnapshot(), ctx()))).timeZone).toBe('Europe/Berlin');
+  });
+
   it('keeps previous data visible (loading) while the refresh is in flight', async () => {
     const { provider, service } = setup();
     provider.currentScript.hold();
     provider.forecastScript.hold();
-    const seen: WeatherSnapshot[] = [];
+    const seen: WeatherView[] = [];
     const controller = new AbortController();
-    const p = service.refresh(previousSnapshot(), { signal: controller.signal, onUpdate: (s) => seen.push(s) });
+    const p = service.refresh(sampleLocation, previousSnapshot(), {
+      signal: controller.signal,
+      onUpdate: (s) => seen.push(s),
+    });
     expect(seen[0]?.current.status).toBe('loading');
-    expect(seen[0]?.current.data).toEqual({ temperatureC: 5 });
+    expect(seen[0]?.current.data).toEqual({ tempCanonical: 5 });
     expect(seen[0]?.current.updatedAt).toEqual(T0);
     provider.currentScript.resolveNext(ok({}));
     provider.forecastScript.resolveNext(ok([]));
     await p;
   });
 
-  it('five rapid refreshes produce exactly one provider call per section (AC-P-03)', async () => {
-    const { provider, service } = setup();
-    provider.currentScript.hold();
-    provider.forecastScript.hold();
-    const prev = previousSnapshot();
-    const promises = Array.from({ length: 5 }, () =>
-      service.refresh(prev, { signal: new AbortController().signal }),
-    );
-    expect(provider.currentScript.callCount).toBe(1);
-    expect(provider.forecastScript.callCount).toBe(1);
-    provider.currentScript.resolveNext(ok(sampleCurrent));
-    provider.forecastScript.resolveNext(ok(sampleForecast));
-    const results = await Promise.all(promises);
-    expect(new Set(results).size).toBe(1);
-    // After completion a new refresh is a new request.
-    provider.currentScript.release();
-    provider.forecastScript.release();
-    await service.refresh(prev, { signal: new AbortController().signal });
-    expect(provider.currentScript.callCount).toBe(2);
-    expect(provider.forecastScript.callCount).toBe(2);
-  });
-
-  it('load and refresh for the same location are separate operations', async () => {
+  it('does not coalesce requests itself: one-at-a-time loading is the controller\'s job (architecture 3.7)', async () => {
     const { provider, service } = setup();
     provider.currentScript.hold();
     provider.forecastScript.hold();
     const a = service.load(sampleLocation, { signal: new AbortController().signal });
-    const b = service.refresh(previousSnapshot(), { signal: new AbortController().signal });
+    const b = service.refresh(sampleLocation, previousSnapshot(), { signal: new AbortController().signal });
     expect(provider.currentScript.callCount).toBe(2);
+    expect(provider.forecastScript.callCount).toBe(2);
     provider.currentScript.pending.forEach((c) => c.resolve(ok({})));
     provider.forecastScript.pending.forEach((c) => c.resolve(ok([])));
     await Promise.all([a, b]);
@@ -272,7 +313,7 @@ describe('WeatherService refresh and partial failure', () => {
 });
 
 describe('WeatherService timeout and supersession', () => {
-  it('times out at weatherTimeoutMs (10 s) with TIMEOUT per section and aborts the provider call', async () => {
+  it('times out at weatherTimeoutMs (10 s) with TIMEOUT on both sections and aborts the provider call', async () => {
     vi.useFakeTimers();
     const { provider, service, ctx } = setup();
     provider.currentScript.hold();
@@ -291,14 +332,17 @@ describe('WeatherService timeout and supersession', () => {
     expect(provider.currentScript.callCount).toBe(1); // no automatic retry
   });
 
-  it('timeout of one section does not abort the other', async () => {
+  it('a timeout on a refresh keeps the previous data and times on both sections', async () => {
     vi.useFakeTimers();
     const { provider, service, ctx } = setup({ weatherTimeoutMs: 1000 });
     provider.forecastScript.hold();
-    const p = service.load(sampleLocation, ctx());
+    const prev = previousSnapshot();
+    const p = service.refresh(sampleLocation, prev, ctx());
     await vi.advanceTimersByTimeAsync(1000);
     const snap = await done(p);
-    expect(snap.current.status).toBe('ready');
+    expect(snap.current).toMatchObject({ status: 'error', data: prev.current.data, updatedAt: T0 });
+    expect(snap.forecast).toMatchObject({ status: 'error', data: prev.forecast.data, updatedAt: T0 });
+    expect(snap.current.error?.kind).toBe('timeout');
     expect(snap.forecast.error?.kind).toBe('timeout');
   });
 
@@ -306,7 +350,7 @@ describe('WeatherService timeout and supersession', () => {
     const { provider, service, ctx } = setup();
     provider.currentScript.hold();
     provider.forecastScript.hold();
-    const updates: WeatherSnapshot[] = [];
+    const updates: WeatherView[] = [];
     const first = ctx();
     const p = service.load(sampleLocation, { signal: first.signal, onUpdate: (s) => updates.push(s) });
     const countBefore = updates.length;

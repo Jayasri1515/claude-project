@@ -40,7 +40,7 @@ function build(options: { withReverse?: boolean } = {}) {
   const weather = new LegacyFakeWeatherProvider();
   const location = new LegacyFakeLocationService('prompt');
   const c = compose({ config: createConfig(), geocoding, weather, locationService: location, clock: new FakeClock() });
-  weather.currentScript.respondWith(ok({ temperatureC: 5, humidityPct: 5, condition: 'CLEAR' }));
+  weather.currentScript.respondWith(ok({ tempCanonical: 5, humidityPct: 5, conditionCategory: 'CLEAR' }));
   weather.forecastScript.respondWith(ok([]));
   render(<App store={c.store} controller={c.controller} config={c.config} />);
   return { c, geocoding, weather, location };
@@ -113,7 +113,7 @@ describe('Device coordinates are never persisted or logged (NFR-005, F-004)', ()
     for (const needle of ['33.123456', '44.654321', 'device:', 'Current location']) expect(text).not.toContain(needle);
     expect(logged()).not.toContain('33.123456');
     // The coordinates did reach the weather port (that is the disclosed purpose) and only that.
-    expect(t.weather.currentScript.calls[0]?.args[0].latitude).toBe(DEVICE.lat);
+    expect(t.weather.currentScript.calls[0]?.args[0]).toEqual({ lat: DEVICE.lat, lon: DEVICE.lon });
   });
 
   it('device location resolved to a named place: only that place (its own coordinates) is stored', async () => {
@@ -156,13 +156,5 @@ describe('Untrusted text renders as text only (NFR-006)', () => {
     expect((window as unknown as { __pwned?: number }).__pwned).toBeUndefined();
     // And what was stored is the literal text, not interpreted.
     expect(window.localStorage.getItem('weather-app.favorites')).toContain('<img src=x');
-  });
-
-  it('hostile condition text from a provider is displayed as text', async () => {
-    const t = build();
-    t.weather.currentScript.respondWith(ok({ temperatureC: 1, condition: 'UNKNOWN', conditionText: '<iframe src="javascript:alert(1)"></iframe>' }));
-    await act(() => t.c.controller.chooseCandidate(city(1)));
-    expect(document.querySelector('iframe')).toBeNull();
-    expect(screen.getByRole('region', { name: 'Current weather' }).textContent).toContain('<iframe src="javascript:alert(1)"></iframe>');
   });
 });

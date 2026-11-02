@@ -249,3 +249,18 @@ Run by the top-level session (not by the Verifier), once the network resolved DN
 What this settles: the current adapter code parses the real geocoding, current-conditions (including `is_day`) and daily-forecast responses, and the request with `forecastIncludesToday: true` returns today first (finding F-1 and the first part of O-1 are closed; "No live-API evidence" in Section 9 gap 1 is closed for those three requests).
 
 What it does not settle: it runs in Node, not a browser, so it does not show whether `cache: 'no-store'` triggers a CORS preflight on Firefox and WebKit (T-75, still open); it does not observe the real rate-limit response, so the 429 = rate limited assumption is still unconfirmed; it asserts shapes and ranges only, not exact weather. It was run once and not looped.
+
+## 12. Addendum: after port-migration batches 1 and 2 (2026-11-02, later)
+
+Run by the top-level session on the working tree after migration batch 1 (weather data shapes and the adapter's `get`) and batch 2 (`WeatherService` on `get`, `WeatherView`, legacy weather port removed). These are my own runs, not the Verifier's.
+
+| Command | Result |
+|---|---|
+| `npm test` | 54 files, 1449 tests passed |
+| `npm run typecheck`, `npm run lint` | both clean |
+| `npm run build:release` | passed; `scan:dist` no findings; JS 285.32 kB (87.37 kB gzip by Vite); scan counts 86,331 bytes gzipped against 200,000; 11 icons |
+| `npm run test:browser` | 270 passed, 0 failed (5.5 min) |
+| `npm run smoke:live` | exit 0, 2 of 2 tests (3 real requests): geocoding "Berlin"; one `get` as the app makes it, current values and forecast dates 2026-11-02, 03, 04 in zone Europe/Berlin |
+
+Changes since Section 11: the two weather smoke tests became one test (the adapter's `getCurrent`/`getForecast` were removed); about 10 tests for `observedAt` and provider condition text were removed because that behaviour no longer exists; two weather-service tests were rewritten for sections that now arrive together; 15 `get` tests were added to the adapter tests and the real adapter now also runs the approved weather contract. Visible change: the two weather sections appear together. This addendum does not re-assess requirement coverage (Sections 5 to 7 are from the earlier run); the coverage of the migrated weather path rests on the tests named above.
+

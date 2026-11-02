@@ -49,30 +49,6 @@ export interface Location {
   readonly source: LocationSource;
 }
 
-export interface CurrentWeather {
-  /** Degrees Celsius. */
-  readonly temperatureC?: number;
-  /** Percent, 0-100. */
-  readonly humidityPct?: number;
-  readonly condition?: ConditionCode;
-  /** Provider text, used as label fallback for UNKNOWN conditions. */
-  readonly conditionText?: string;
-  /** True by day, false by night, absent when the provider does not say (selects the day/night icon and text). */
-  readonly isDay?: boolean;
-  readonly observedAt?: Date;
-}
-
-export interface ForecastDay {
-  /** Local calendar date at the location, ISO "YYYY-MM-DD" (no time zone component). */
-  readonly date: string;
-  /** Degrees Celsius. */
-  readonly tempMinC?: number;
-  /** Degrees Celsius. */
-  readonly tempMaxC?: number;
-  readonly condition?: ConditionCode;
-  readonly conditionText?: string;
-}
-
 export type SectionStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 export interface Section<T> {
@@ -83,20 +59,27 @@ export interface Section<T> {
   readonly updatedAt?: Date;
 }
 
-export interface WeatherSnapshot {
-  readonly location: Location;
-  readonly current: Section<CurrentWeather>;
-  readonly forecast: Section<ForecastDay[]>;
+/**
+ * What the UI renders for one city's weather (impl-plan T-20, migration batch 2). `key` is the Location key of the
+ * city shown, `label` its display name, `timeZone` the IANA zone from the last weather response that supplied one.
+ * The two sections load together (one `WeatherProvider.get` call) but succeed or fail independently.
+ */
+export interface WeatherView {
+  readonly key: string;
+  readonly label: string;
+  readonly timeZone?: string;
+  readonly current: Section<Current>;
+  readonly forecast: Section<Day[]>;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Approved domain model (architecture 3.1, impl-plan T-12). Provider- and platform-neutral.
 //
-// The types ABOVE this line (`Location`, `CurrentWeather`, `ForecastDay`, `Section`, `WeatherSnapshot`) are the
-// pre-approval model that the existing services, controller, UI and adapters still use. They are retired by the
-// Phase 2+ tasks that rewrite those consumers (T-20 weather service, T-22 favorites, T-26 location flow, T-27
-// controller, T-30/T-31 adapters, T-60 UI). The types BELOW are the target model: nothing in the old code has been
-// changed to depend on them yet, except that `Coordinates` now lives here (the location-service port re-exports it).
+// The types ABOVE this line (`Location`, `Section`, `WeatherView`) are the pre-approval model that the existing
+// services, controller, UI and adapters still use; they are retired by the Phase 2+ tasks that rewrite those consumers
+// (T-22 favorites, T-26 location flow, T-27 controller, T-30/T-31 adapters, T-60 UI). The weather
+// data shapes `Current` and `Day` BELOW are already used by them. `Coordinates` lives here too (the location-service
+// port re-exports it).
 // ---------------------------------------------------------------------------------------------------------------------
 
 /** Decimal degrees. */

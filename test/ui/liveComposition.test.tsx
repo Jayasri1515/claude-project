@@ -87,6 +87,16 @@ describe('composeLive (a normal build)', () => {
     }
   });
 
+  it('the forecast request follows Config.forecastDays and forecastIncludesToday (they are wired into the weather adapter)', async () => {
+    const t = setup(route, { config: createConfig({ forecastDays: 5, forecastIncludesToday: false }) });
+    await act(() => t.controller.chooseCandidate({
+      key: 'k', name: 'Berlin', latitude: 52.52, longitude: 13.41, source: 'search',
+    }));
+    const daily = t.calls.filter((c) => new URL(c.url).searchParams.has('daily'));
+    expect(daily).toHaveLength(1);
+    expect(new URL(daily[0]?.url ?? '').searchParams.get('forecast_days')).toBe('6'); // five days after today
+  });
+
   it('over-long input shows its own message and makes no request (C2)', async () => {
     const user = userEvent.setup();
     const t = setup();

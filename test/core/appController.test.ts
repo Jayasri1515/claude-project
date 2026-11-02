@@ -55,7 +55,7 @@ function setup(
     store,
   });
   // Weather answers carry the city so tests can tell whose data is on screen.
-  weatherProvider.currentScript.respondWith((loc) => ok({ temperatureC: loc.latitude }));
+  weatherProvider.currentScript.respondWith((at) => ok({ tempCanonical: at.lat }));
   return { kv, geocoding, weatherProvider, location, store, controller, favorites, settings };
 }
 
@@ -180,7 +180,7 @@ describe('"Use my location"', () => {
     t.location.positionScript.respondWith(err(timeoutError()));
     await t.controller.useMyLocation();
     expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { kind: 'timeout' } });
-    expect(t.store.getState().snapshot?.location.key).toBe(A.key);
+    expect(t.store.getState().snapshot?.key).toBe(A.key);
     t.geocoding.searchScript.respondWith(ok([B]));
     await t.controller.searchCity('two');
     expect(t.store.getState().selectedLocation?.key).toBe(B.key);
@@ -253,7 +253,7 @@ describe('location watchdog and late results (architecture 3.3 steps 2, 4 and 6)
     t.location.positionScript.pending[0]?.resolve(coords);
     await vi.advanceTimersByTimeAsync(0);
     expect(t.store.getState().selectedLocation?.key).toBe(A.key);
-    expect(t.weatherProvider.currentScript.calls.every((c) => c.args[0].key === A.key)).toBe(true);
+    expect(t.weatherProvider.currentScript.calls.every((c) => c.args[0].lat === A.latitude)).toBe(true);
   });
 
   it('"Use my location" after a timeout starts a new attempt and the first one cannot override it', async () => {
@@ -281,7 +281,7 @@ describe('location watchdog and late results (architecture 3.3 steps 2, 4 and 6)
     await vi.advanceTimersByTimeAsync(createConfig().locationTimeoutMs);
     await attempt;
     expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { kind: 'timeout' } });
-    expect(t.store.getState().snapshot?.location.key).toBe(A.key);
+    expect(t.store.getState().snapshot?.key).toBe(A.key);
   });
 });
 
@@ -298,9 +298,9 @@ describe('stale results are discarded (selection token)', () => {
     await locating;
     const state = t.store.getState();
     expect(state.selectedLocation?.key).toBe(A.key);
-    expect(state.snapshot?.location.key).toBe(A.key);
+    expect(state.snapshot?.key).toBe(A.key);
     expect(state.locationFlow).toEqual({ status: 'idle' });
-    expect(t.weatherProvider.currentScript.calls.every((c) => c.args[0].key === A.key)).toBe(true);
+    expect(t.weatherProvider.currentScript.calls.every((c) => c.args[0].lat === A.latitude)).toBe(true);
   });
 
   it('slow weather for city A after selecting city B is discarded', async () => {
@@ -312,11 +312,11 @@ describe('stale results are discarded (selection token)', () => {
     await t.controller.chooseCandidate(B);
     expect(t.weatherProvider.currentScript.calls[0]?.aborted).toBe(true);
     // City A's answer finally arrives.
-    t.weatherProvider.currentScript.calls[0]?.resolve(ok({ temperatureC: 99 }));
+    t.weatherProvider.currentScript.calls[0]?.resolve(ok({ tempCanonical: 99 }));
     await loadingA;
     const snap = t.store.getState().snapshot;
-    expect(snap?.location.key).toBe(B.key);
-    expect(snap?.current.data?.temperatureC).toBe(B.latitude);
+    expect(snap?.key).toBe(B.key);
+    expect(snap?.current.data?.tempCanonical).toBe(B.latitude);
     expect(t.store.getState().selectedLocation?.key).toBe(B.key);
   });
 
@@ -329,7 +329,7 @@ describe('stale results are discarded (selection token)', () => {
     expect(t.store.getState().search).toMatchObject({ status: 'error', error: { kind: 'empty_input' } });
     expect(t.geocoding.searchScript.callCount).toBe(0);
     expect(t.weatherProvider.currentScript.calls[0]?.aborted).toBe(false);
-    t.weatherProvider.currentScript.pending[0]?.resolve(ok({ temperatureC: 1 }));
+    t.weatherProvider.currentScript.pending[0]?.resolve(ok({ tempCanonical: 1 }));
     await loading;
     expect(t.store.getState().snapshot?.current.status).toBe('ready');
   });
@@ -392,7 +392,7 @@ describe('favorites', () => {
     await t.controller.selectFavorite(A.key);
     expect(t.geocoding.searchScript.callCount).toBe(0);
     const last = t.weatherProvider.currentScript.calls.at(-1);
-    expect(last?.args[0]).toMatchObject({ key: A.key, latitude: A.latitude, longitude: A.longitude });
+    expect(last?.args[0]).toEqual({ lat: A.latitude, lon: A.longitude });
     expect(t.store.getState().selectedLocation?.key).toBe(A.key);
   });
 
@@ -475,10 +475,10 @@ describe('refresh and settings', () => {
     await flush();
     expect(t.weatherProvider.currentScript.callCount - (before[0] ?? 0)).toBe(1);
     expect(t.weatherProvider.forecastScript.callCount - (before[1] ?? 0)).toBe(1);
-    t.weatherProvider.currentScript.pending.forEach((c) => c.resolve(ok({ temperatureC: 5 })));
+    t.weatherProvider.currentScript.pending.forEach((c) => c.resolve(ok({ tempCanonical: 5 })));
     t.weatherProvider.forecastScript.pending.forEach((c) => c.resolve(ok([])));
     await Promise.all(all);
-    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(5);
+    expect(t.store.getState().snapshot?.current.data?.tempCanonical).toBe(5);
   });
 
   it('refresh with nothing displayed does nothing', async () => {
@@ -494,7 +494,7 @@ describe('refresh and settings', () => {
     await t.controller.refresh();
     const snap = t.store.getState().snapshot;
     expect(snap?.current.status).toBe('error');
-    expect(snap?.current.data?.temperatureC).toBe(A.latitude);
+    expect(snap?.current.data?.tempCanonical).toBe(A.latitude);
   });
 
   it('a refresh is cancelled when the selection changes', async () => {
@@ -505,14 +505,14 @@ describe('refresh and settings', () => {
     await flush();
     t.weatherProvider.currentScript.release();
     await t.controller.chooseCandidate(B);
-    expect(t.weatherProvider.currentScript.calls.find((c) => c.args[0].key === A.key && c.aborted)).toBeDefined();
-    t.weatherProvider.currentScript.pending.forEach((c) => c.resolve(ok({ temperatureC: 99 })));
+    expect(t.weatherProvider.currentScript.calls.find((c) => c.args[0].lat === A.latitude && c.aborted)).toBeDefined();
+    t.weatherProvider.currentScript.pending.forEach((c) => c.resolve(ok({ tempCanonical: 99 })));
     await refreshing;
     const snapshot = t.store.getState().snapshot;
-    expect(snapshot?.location.key).toBe(B.key);
+    expect(snapshot?.key).toBe(B.key);
     // A's late refresh result (99) must not appear in B's data.
-    expect(snapshot?.current.data?.temperatureC).toBe(B.latitude);
-    expect(snapshot?.current.data?.temperatureC).not.toBe(99);
+    expect(snapshot?.current.data?.tempCanonical).toBe(B.latitude);
+    expect(snapshot?.current.data?.tempCanonical).not.toBe(99);
   });
 
   it('a refresh while a search is pending is ignored (N1, A-Q19)', async () => {
@@ -529,8 +529,8 @@ describe('refresh and settings', () => {
     t.geocoding.searchScript.pending[0]?.resolve(ok([B]));
     await searching;
     const snap = t.store.getState().snapshot;
-    expect(snap?.location.key).toBe(B.key);
-    expect(snap?.current.data?.temperatureC).toBe(B.latitude);
+    expect(snap?.key).toBe(B.key);
+    expect(snap?.current.data?.tempCanonical).toBe(B.latitude);
     expect(t.store.getState().selectedLocation?.key).toBe(B.key);
     // Exactly one load ran for the new city and none for the old one.
     expect(t.weatherProvider.currentScript.callCount).toBe(callsBefore + 1);
@@ -544,7 +544,7 @@ describe('refresh and settings', () => {
     const before = t.weatherProvider.currentScript.callCount;
     await t.controller.refresh();
     expect(t.weatherProvider.currentScript.callCount).toBe(before + 1);
-    expect(t.store.getState().snapshot?.location.key).toBe(A.key);
+    expect(t.store.getState().snapshot?.key).toBe(A.key);
   });
 
   it('an old-city refresh that resolves after the new city loaded never overwrites it (DR-18)', async () => {
@@ -558,18 +558,18 @@ describe('refresh and settings', () => {
     await flush();
     // B's load is the second held call; A's refresh is the first (aborted).
     const calls = t.weatherProvider.currentScript.calls;
-    const refreshCall = calls.find((c) => c.args[0].key === A.key && c.aborted);
-    const loadB = calls.find((c) => c.args[0].key === B.key);
+    const refreshCall = calls.find((c) => c.args[0].lat === A.latitude && c.aborted);
+    const loadB = calls.find((c) => c.args[0].lat === B.latitude);
     expect(refreshCall).toBeDefined();
     expect(loadB).toBeDefined();
-    loadB?.resolve(ok({ temperatureC: B.latitude }));
+    loadB?.resolve(ok({ tempCanonical: B.latitude }));
     await searching;
     // The old city's refresh finishes last, with data of its own.
-    refreshCall?.resolve(ok({ temperatureC: 99 }));
+    refreshCall?.resolve(ok({ tempCanonical: 99 }));
     await refreshing;
     const snap = t.store.getState().snapshot;
-    expect(snap?.location.key).toBe(B.key);
-    expect(snap?.current.data?.temperatureC).toBe(B.latitude);
+    expect(snap?.key).toBe(B.key);
+    expect(snap?.current.data?.tempCanonical).toBe(B.latitude);
     expect(t.store.getState().selectedLocation?.key).toBe(B.key);
   });
 
@@ -586,13 +586,14 @@ describe('review fixes M1, M2, M3, L6', () => {
     const t = setup({ permission: 'granted' });
     t.location.positionScript.respondWith(ok({ lat: 10, lon: 20 }));
     await t.controller.useMyLocation();
-    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(10);
+    expect(t.store.getState().snapshot?.current.data?.tempCanonical).toBe(10);
     // The user moved, and now the weather request fails.
     t.location.positionScript.respondWith(ok({ lat: 50, lon: 60 }));
     t.weatherProvider.currentScript.respondWith(err(serviceUnavailable()));
     await t.controller.useMyLocation();
     const snap = t.store.getState().snapshot;
-    expect(snap?.location.latitude).toBe(50);
+    expect(t.store.getState().selectedLocation).toMatchObject({ latitude: 50 });
+    expect(snap?.key).toBe(t.store.getState().selectedLocation?.key);
     expect(snap?.current.status).toBe('error');
     expect(snap?.current.data).toBeUndefined();
     expect(snap?.current.updatedAt).toBeUndefined();
@@ -627,7 +628,7 @@ describe('review fixes M1, M2, M3, L6', () => {
     await t.controller.useMyLocation();
     const state = t.store.getState();
     expect(state.selectedLocation?.key).toBe(A.key);
-    expect(state.snapshot?.current.data?.temperatureC).toBe(A.latitude);
+    expect(state.snapshot?.current.data?.tempCanonical).toBe(A.latitude);
     expect(state.locationFlow).toMatchObject({ status: 'error', error: { kind: 'timeout' } });
     expect(t.weatherProvider.currentScript.callCount).toBe(calls);
   });
@@ -640,12 +641,12 @@ describe('review fixes M1, M2, M3, L6', () => {
     t.location.positionScript.respondWith(err({ kind: 'permission_denied', messageKey: 'error.locationDenied' }));
     await t.controller.useMyLocation();
     expect(t.weatherProvider.currentScript.calls[0]?.aborted).toBe(false);
-    t.weatherProvider.currentScript.pending[0]?.resolve(ok({ temperatureC: 7 }));
+    t.weatherProvider.currentScript.pending[0]?.resolve(ok({ tempCanonical: 7 }));
     await loading;
     const snap = t.store.getState().snapshot;
-    expect(snap?.location.key).toBe(A.key);
+    expect(snap?.key).toBe(A.key);
     expect(snap?.current.status).toBe('ready');
-    expect(snap?.current.data?.temperatureC).toBe(7);
+    expect(snap?.current.data?.tempCanonical).toBe(7);
     expect(t.store.getState().locationFlow).toMatchObject({ status: 'error' });
   });
 
@@ -655,7 +656,7 @@ describe('review fixes M1, M2, M3, L6', () => {
     t.location.positionScript.respondWith(coords);
     await t.controller.useMyLocation();
     expect(t.store.getState().selectedLocation?.source).toBe('device');
-    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(33.3);
+    expect(t.store.getState().snapshot?.current.data?.tempCanonical).toBe(33.3);
   });
 
   it('M2: a search still waiting is superseded by a newer "Use my location"', async () => {
@@ -680,10 +681,10 @@ describe('review fixes M1, M2, M3, L6', () => {
     await t.controller.refresh();
     expect(t.weatherProvider.currentScript.callCount).toBe(1);
     expect(t.weatherProvider.forecastScript.callCount).toBe(1);
-    t.weatherProvider.currentScript.pending.forEach((c) => c.resolve(ok({ temperatureC: 3 })));
+    t.weatherProvider.currentScript.pending.forEach((c) => c.resolve(ok({ tempCanonical: 3 })));
     t.weatherProvider.forecastScript.pending.forEach((c) => c.resolve(ok([])));
     await loading;
-    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(3);
+    expect(t.store.getState().snapshot?.current.data?.tempCanonical).toBe(3);
     // Once the load is done, a refresh is a real request again.
     t.weatherProvider.currentScript.release();
     t.weatherProvider.forecastScript.release();
@@ -700,19 +701,19 @@ describe('review fixes M1, M2, M3, L6', () => {
     const loadingB = t.controller.chooseCandidate(B);
     await flush();
     const calls = t.weatherProvider.currentScript.calls;
-    expect(calls.map((c) => c.args[0].key)).toEqual([A.key, B.key]);
+    expect(calls.map((c) => c.args[0].lat)).toEqual([A.latitude, B.latitude]);
     expect(calls[0]?.aborted).toBe(true); // A released before B ran
     expect(calls[1]?.aborted).toBe(false);
     // Only B is active: a refresh joins it instead of starting a third request.
     await t.controller.refresh();
     expect(t.weatherProvider.currentScript.callCount).toBe(2);
     // A answers late: ignored. B answers: applied.
-    calls[0]?.resolve(ok({ temperatureC: 99 }));
-    calls[1]?.resolve(ok({ temperatureC: 7 }));
+    calls[0]?.resolve(ok({ tempCanonical: 99 }));
+    calls[1]?.resolve(ok({ tempCanonical: 7 }));
     t.weatherProvider.forecastScript.pending.forEach((c) => c.resolve(ok([])));
     await Promise.all([loadingA, loadingB]);
-    expect(t.store.getState().snapshot?.location.key).toBe(B.key);
-    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(7);
+    expect(t.store.getState().snapshot?.key).toBe(B.key);
+    expect(t.store.getState().snapshot?.current.data?.tempCanonical).toBe(7);
     // The flag was released: a refresh is a real request again.
     t.weatherProvider.currentScript.release();
     t.weatherProvider.forecastScript.release();
@@ -729,9 +730,9 @@ describe('review fixes M1, M2, M3, L6', () => {
     await flush();
     expect(t.weatherProvider.currentScript.callCount).toBe(2);
     expect(t.weatherProvider.currentScript.calls[0]?.aborted).toBe(true);
-    t.weatherProvider.currentScript.calls[1]?.resolve(ok({ temperatureC: 4 }));
+    t.weatherProvider.currentScript.calls[1]?.resolve(ok({ tempCanonical: 4 }));
     await Promise.all([first, second]);
-    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(4);
+    expect(t.store.getState().snapshot?.current.data?.tempCanonical).toBe(4);
   });
 
   it('L6: a later successful selection clears an earlier location error', async () => {
@@ -816,7 +817,7 @@ describe('failures never become unhandled rejections', () => {
     await expect(t.controller.chooseCandidate(A)).resolves.toBeUndefined();
     expect(t.store.getState().selectedLocation?.key).toBe(A.key);
     expect(t.store.getState().snapshot?.current.status).toBe('ready');
-    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(A.latitude);
+    expect(t.store.getState().snapshot?.current.data?.tempCanonical).toBe(A.latitude);
     expect(seen.at(-1)).toBe('ready');
   });
 });
