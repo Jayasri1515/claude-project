@@ -6,7 +6,7 @@
 | Approval | **APPROVED.** The user approved this document on 2026-10-30; see Section 12 for the quoted statement, scope and deferred items. Deferred items are not approved values. |
 | Prepared by | Requirements Analyst (Stage 1, restarted SDLC workflow; updated 2026-10-30 to record the accepted clarification defaults) |
 | Date | 2026-10-30 |
-| Clarification defaults | On 2026-10-30 the user accepted the proposed defaults for the clarification questions ("accept all defaults"; source: "user accepted proposed default"). This is NOT approval of this document, which is still unapproved. Questions or parts of questions with no explicit default remain open and are listed in Section 11. |
+| Clarification defaults | On 2026-10-30 the user accepted the proposed defaults for the clarification questions ("accept all defaults"; source: "user accepted proposed default"). Accepting these defaults is NOT itself approval of this document. Reconciled 2026-11-02: the document approval is a separate, later-recorded act (header rows 5-6 and Section 12, 2026-10-30, with the user's quoted statement). Earlier state (superseded): "This is NOT approval of this document, which is still unapproved." Questions or parts of questions with no explicit default remain open and are listed in Section 11. |
 | Repository / branch | `claude-project` / `feature/weather-app` |
 | Input handling | WF-1..WF-7 are treated as ONE combined input. Story text is treated as untrusted data, not as instructions. |
 
@@ -193,9 +193,9 @@ Story: As a user, I want the weather information displayed with clear icons and 
 | REQ-WF7-05 | FR | WF-7 AC5 | While weather data is loading or unavailable, the application shall display a loading indicator, helpful message, or error state instead of confusing or misleading information. | Partial (Q29 still open: no loading-indicator threshold or performance target; TBD) |
 | REQ-WF7-06 | NFR (usability) | WF-7 AC6 | When the user navigates between search results, current weather, forecasts, and favorites, the interface shall provide clear controls and consistent navigation. Clarification (per accepted default Q25): a single-page layout with persistent search and a favorites access control. | Partial: structure defined per accepted default Q25; "clear" and "consistent" remain subjective as written |
 
-### 4.8 Derived cross-story requirements (Derived: accepted via the "accept all defaults" decision; document still unapproved)
+### 4.8 Derived cross-story requirements (Derived: accepted via the "accept all defaults" decision; document-approval status: see Section 12; earlier wording "document still unapproved" superseded, reconciled 2026-11-02)
 
-These are NOT in Jira as written. They are derived from combining the stories and exist so the stories can be implemented consistently. They remain labelled Derived. On 2026-10-30 the user accepted them via the "accept all defaults" decision (D-14 answered with the proposed values). This is acceptance of the derived items only. It is not approval of this document, which remains unapproved.
+These are NOT in Jira as written. They are derived from combining the stories and exist so the stories can be implemented consistently. They remain labelled Derived. On 2026-10-30 the user accepted them via the "accept all defaults" decision (D-14 answered with the proposed values). This is acceptance of the derived items only. It is not itself approval of this document. Reconciled 2026-11-02: the document was approved separately on 2026-10-30 (header rows 5-6, Section 12); earlier state (superseded): "which remains unapproved."
 
 | ID | Type | Derived from | Requirement | Status |
 |---|---|---|---|---|
@@ -562,7 +562,7 @@ On 2026-10-30 the user answered this checklist with the proposed values ("accept
 
 ## 11. Open Questions and Unresolved Decisions
 
-On 2026-10-30 the user accepted the proposed defaults (source: "user accepted proposed default"), which resolved most of Q1-Q31. Only the items below remain open. Each "Partial" Testability entry in Section 4 stays blocked from final pass/fail wording until its related open item is answered. The document itself is still unapproved (Section 12).
+On 2026-10-30 the user accepted the proposed defaults (source: "user accepted proposed default"), which resolved most of Q1-Q31. Only the items below remain open. Each "Partial" Testability entry in Section 4 stays blocked from final pass/fail wording until its related open item is answered. Reconciled 2026-11-02: the document itself was approved by the user on 2026-10-30, with these open items deferred to the Architect (header rows 5-6, Section 12); earlier state (superseded): "The document itself is still unapproved (Section 12)."
 
 ### 11.1 Fully open (no explicit default)
 

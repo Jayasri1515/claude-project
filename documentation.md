@@ -57,9 +57,23 @@ Approval evidence and dates are quoted as stated in each artifact. This agent di
 | 8 Release | `CHANGELOG.md`, `PULL_REQUEST.md` | Absent when this file was drafted; being written by another agent | Not read or reviewed here. Nothing committed, pushed or published. See Section 7. |
 | 9 Documentation | this file | Written 2026-11-02 | n/a |
 
-### 1.4 Stale-header discrepancies (listed, NOT fixed)
+### 1.4 Stale-header discrepancies (D1 to D12 reconciled on 2026-11-02; D13 and D14 open)
 
-The files below contradict themselves or each other. They were not edited by this agent. Where a file's own later section explains the conflict, that is noted.
+The table below is the record of what each file said when this document was written, and what the same or another file said. **Reconciled 2026-11-02 (after this document was first written):** D1 to D12 were corrected at the request of the user. In each file the old sentence was kept as "Earlier state (superseded)" with a "Reconciled 2026-11-02" marker and the evidence line, and no approval, decision, requirement or task status was changed.
+
+| Row | Reconciled in | What changed |
+|---|---|---|
+| D1 to D4 | `impl-plan.md` | Header and line 11/55 now say implementation exists in the working tree and T-07 is done and approved; U7 and wording "NOT approved" claims fixed; Phase 1 and 2 status cells follow the AUTH row; test-file count "51 at plan time; 54 now"; an AUTH note records that the user directed the post-review fixes in the 2026-11-02 working session (covers only those fixes). Phase 3 and later still show "awaiting user authorization". No task was re-marked Done. |
+| D5 | `design-review.md` | Header rows show APPROVED WITH CONDITIONS (Section 10); Section 9.1 verdict lines marked superseded. Sections 1 to 8 are left as the round 0 record. |
+| D6, D7 | `architecture.md` | "None is approved" and "PROVIDER FACTS ARE UNVERIFIED" annotated: Section 11 and `design-review.md` Section 10 record the "Accept all proposals" approval with conditions (U5, U6, U7 not decided); the provider checklist results are in `provider-verification.md` with its DOC / OBSERVED / NOT CONFIRMED labels. |
+| D8 | `requirements.md` | The "NOT approval of this document" sentence is clarified: it concerns acceptance of the clarification defaults; the document approval is recorded separately (rows 5-6, Section 12). |
+| D9 | `message-wording.md` | Approval and "Drafted by" rows now say approved 2026-10-30, footer Option A. The text below the header is unedited. |
+| D10 | `test-triage.md` | Dated note: the three e2e specs listed as retired were rebuilt on 2026-11-02; the file reflects the end of Phase 1 only. |
+| D11 | `README.md` | Icon count 11; "Current state" rewritten to the latest verification facts, stating it is not release-ready and not complete against `impl-plan.md`; OQ and TASK-046 text corrected. |
+| D12 | `docs/deployment.md` | Build sizes (JS 285,154 bytes, 87.38 kB gzip; CSS 3,213 bytes) and 11 icons from a fresh `build:release`. |
+| D13, D14 | not changed | D13 (forecast date format) is an open decision, Q13. D14 is stale source comments, not header text. Left open. |
+
+Not changed on purpose: the body text of `architecture.md` that still says "unapproved Q26 / decisions" (lines near 199, 214, 263, 415), the `design-review.md` round 0 sections, and the "(to be filled...)" heading of the `message-wording.md` approval record.
 
 | # | Location | What it says | What the same or another file says |
 |---|---|---|---|
@@ -247,9 +261,9 @@ Limitations (all from `verification.md`):
 | Deployment / publishing | Nothing deployed or published. Hosting is undecided beyond "any static HTTPS host"; no CI workflow exists (`docs/deployment.md`). |
 | Release readiness | **Not release-ready.** smoke:live failed (environment), manual checks T-70..T-75 not run, the approved-port migration (T-20..T-32) is incomplete, the deployed-origin CSP and CORS checks are Blocked (HOST), and several assumptions in Section 6 are unconfirmed. |
 
-**Overall SDLC status: Partially Complete.** Requirements, architecture, design review, plan and wording are approved (with the stale headers in 1.4). Implementation is substantial but, by `impl-plan.md`, incomplete; code review is not documented in the repository; verification of the automated suites passed with the stated limits; release preparation and publication have not happened.
+**Overall SDLC status: Partially Complete.** Requirements, architecture, design review, plan and wording are approved (the stale headers in 1.4 were reconciled on 2026-11-02, except D13 and D14). Implementation is substantial but, by `impl-plan.md`, incomplete; code review is not documented in the repository; verification of the automated suites passed with the stated limits; release preparation and publication have not happened.
 
-Next steps (from `verification.md` Section 9 and `impl-plan.md`, nothing new): re-run `smoke:live` on a reliable network; decide on authorization for Phase 3 onward and implement the adapters and services for the approved ports (T-20..T-32); close the browser-test gaps (T-61..T-64); decide HOST and run T-70..T-75; reconcile the stale headers (D1 to D14); get a second code review of the latest fix batches; re-verify after any change.
+Next steps (from `verification.md` Section 9 and `impl-plan.md`, nothing new): re-run `smoke:live` on a reliable network; decide on authorization for Phase 3 onward and implement the adapters and services for the approved ports (T-20..T-32); close the browser-test gaps (T-61..T-64); decide HOST and run T-70..T-75; resolve the open D13 (date format, Q13) and D14 (stale source comments); get a second code review of the latest fix batches; re-verify after any change.
 
 ---
 

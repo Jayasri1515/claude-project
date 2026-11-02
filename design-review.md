@@ -6,10 +6,12 @@
 | Review date | 2026-10-30 |
 | Branch | `feature/weather-app` |
 | Review rounds | Round 0 (initial review, Sections 1-6 and 8) and re-review round 1 of 1 (Section 7, verdict and decisions in Section 9). Round 1 is the final review round: items still open go to the human. |
-| Architecture status | **NOT APPROVED.** The revised Architect draft (revision 1) still states "DRAFT / NOT APPROVED" (`architecture.md` header Status row and Section 11). |
-| Human approval decision | **PENDING.** No human has approved, conditionally approved or rejected this architecture. Nothing in this document is, or implies, human approval. |
+| Architecture status | **APPROVED WITH CONDITIONS** by the user on 2026-10-30; see Section 10. Reconciled 2026-11-02: header rows updated to the current state recorded in Section 10 (the user chose "Accept all proposals"; conditions are listed there). Earlier state (superseded): "**NOT APPROVED.** The revised Architect draft (revision 1) still states "DRAFT / NOT APPROVED" (`architecture.md` header Status row and Section 11)." |
+| Human approval decision | **APPROVED WITH CONDITIONS**, 2026-10-30, recorded in Section 10 by the top-level Claude Code session from the user's direct choice. Reconciled 2026-11-02 (evidence: Section 10 and the note at its end). Earlier state (superseded, true when Sections 1-9 were written): "**PENDING.** No human has approved, conditionally approved or rejected this architecture. Nothing in this document is, or implies, human approval." |
 | Prior `design-review.md` | A prior version was not valid and was overwritten. Nothing from it was used. |
 
+> Reconciled 2026-11-02: the header rows 9-10 now show the Section 10 approval. The Sections 1-9 text below is the review as written and is history, not the current status.
+>
 > Reading note: Sections 1-6 and 8 are the round 0 record, kept unchanged. Their `architecture.md` line references point to the pre-revision file and are now stale. Finding statuses in Section 3 are the round 0 statuses. The current status of every finding is in Section 7 (re-review). The current verdict and decision list are in Section 9.
 
 ## 1. Scope and Evidence
@@ -338,8 +340,9 @@ Limitation: the Architect's provider, browser, Permissions API, licence and stan
 
 ### 9.1 Verdict
 
-- Architecture status: **NOT APPROVED.**
-- Human approval decision: **PENDING.** No human has approved, conditionally approved or rejected this architecture. Nothing in this document is, or implies, approval.
+- Reconciled 2026-11-02: the two lines below record the state at the end of re-review round 1 and are superseded by Section 10 (APPROVED WITH CONDITIONS, 2026-10-30). Current status is in Section 10 and the header rows.
+- Architecture status (earlier state, superseded): **NOT APPROVED.**
+- Human approval decision (earlier state, superseded): **PENDING.** No human has approved, conditionally approved or rejected this architecture. Nothing in this document is, or implies, approval.
 - Review result: the revision resolved 13 of 16 findings. Three are partially resolved (DR-01, DR-02, DR-08) and none is Open. The revision added five Low findings (DR-18..DR-22). There are no Critical or High findings and no new Medium finding. This is the final review round, so no further Architect revision is requested by this reviewer. Remaining items go to the human.
 - Blocking items for human approval: none of the findings is a technical blocker. Three things need the human before approval is meaningful: (1) DR-08(a), provider facts are unverified and the Architect's own instruction is not to decide the provider or U2 until the Section 7 item 5 checklist is completed; (2) U1 and U3, which decide whether accepted defaults Q12 and Q28 are honoured in practice; (3) the unapproved deferred values themselves.
 - Possible outcomes for the human: approve; approve with conditions (for example "complete the provider verification checklist before implementation starts" and "DR-18..DR-22 are fixed during planning"); reject; or send back for another revision. This reviewer records only the outcome the human states.

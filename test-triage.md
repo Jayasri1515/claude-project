@@ -161,6 +161,8 @@ Fixture annotations name the `provider-verification.md` (PV) item each recording
 
 Recoverable from git HEAD 50bf7d8 (nothing was committed by the Implementer).
 
+Reconciled 2026-11-02: these three specs were rebuilt on the release harness on 2026-11-02 (e2e/accessibility.spec.ts, layout.spec.ts, browserApis.spec.ts exist and run in npm run test:browser; see verification.md). This file reflects the end of Phase 1 only; its file counts are not current.
+
 | File | Disposition | Reason |
 |------|-------------|--------|
 | test/security/releaseGuard.test.ts | retire (deleted, T-14) | Tested `scripts/releaseGuard.mjs`, which refused a build while `VITE_USE_DEMO=true`; the demo switch no longer exists. |
