@@ -12,7 +12,7 @@
 - **Breaking for anyone with saved favorites:** the stored favorites shape changed and old favorites are discarded, not migrated.
 - Removes the invented-data ("demo") mode and its scripts, source, tests and harness.
 - Replaces the Edge/Chrome browser tests with 270 Playwright tests across five engines (Chromium, Firefox, WebKit, emulated Pixel 7 and iPhone 14).
-- Several important items are NOT done or NOT verified: no live-API evidence, no manual device checks, and the approved port migration is unfinished.
+- Several important items are NOT done or NOT verified: no manual device checks, the `no-store` CORS preflight on Firefox/WebKit and the real rate-limit response are unobserved, and the approved port migration is unfinished.
 
 ## Changes made
 
@@ -62,12 +62,12 @@ All figures are from `verification.md` (runs on 2026-11-02, 15:16 to 15:24 IST, 
 | `npm run lint` | Passed | `eslint .`, exit 0, no output |
 | `npm run build:release` | Passed | exit 0; `scan:dist`: "no findings"; JS 285.15 kB (87.38 kB gzip by Vite; the scan counts 86,350 bytes gzipped against a 200,000 budget); 11 icons bundled |
 | `npm run test:browser` | Passed | 270 passed (54 tests x 5 engine projects), 0 failed, 0 skipped, 0 flaky, `retries: 0`, 5.6 min. Open-Meteo is intercepted. |
-| `npm run smoke:live` | **FAILED** (run twice) | Exit 1 both times, 3 of 3 tests failed. The geocoding request returned `{"kind":"network"}` after about 7.1 s while DNS on this machine was failing intermittently (`EAI_AGAIN` for `geocoding-api.open-meteo.com` in Node; `curl` exit 6 for some hosts at some times). The two weather tests never sent a request. This is judged an environment failure, not proven to be one. **There is no live-API evidence for the current adapter code.** |
+| `npm run smoke:live` | **Passed** (3 of 3), after an earlier failure | Two earlier runs failed (exit 1, geocoding `{"kind":"network"}`) while DNS on the machine was failing intermittently. Re-run once the network resolved: exit 0, 3 of 3 passed against the real Open-Meteo API, before and after changing the forecast test to the app's real request (`DEFAULT_CONFIG`: today plus two days). Result: Berlin geocoded, current conditions parsed (including `is_day`), forecast dates 2026-11-02, 03, 04 (today first). It asserts shapes and ranges only, runs in Node (not a browser), and was not looped. `verification.md` Section 11. |
 
 What this does not show (from `verification.md`):
 - Behaviour against the real Open-Meteo API, including whether `cache: 'no-store'` is accepted without a CORS preflight on Firefox and WebKit.
 - Any real device or real Edge, Chrome or Safari. Playwright's Firefox and WebKit are not Safari.
-- Even on a working network, `smoke:live` (`test/live/openMeteo.live.ts`, unchanged) calls `getForecast(place, 3, false, ...)`, so it would not exercise "today plus two days", the day/night flag, the cache mode or the rate-limit path.
+- `smoke:live` runs in Node, not a browser, so it does not show whether `cache: 'no-store'` triggers a CORS preflight on Firefox and WebKit (T-75), and it does not observe the real rate-limit response, so the 429 = rate limited assumption is unconfirmed.
 - All 40 requirement IDs are marked "Passed (scope-limited)" in `verification.md`; none is fully verified because none has a real-provider, real-device or manual result. Assertions were read for 31 IDs, in part for 3, and 3 are judged from the previous run or titles alone.
 - Code coverage and performance were not measured.
 
@@ -81,7 +81,7 @@ Approvals and review found in the repository:
 Not complete against `impl-plan.md`:
 - **Phase 2/3 port migration (T-20..T-32) is unfinished.** `src/composition.ts` and the core services still use `LegacyGeocodingProvider`, `LegacyWeatherProvider` and `LegacyLocationService`. No class implements the approved `WeatherProvider`, `GeocodingProvider`, `LocationService` or `FavoritesApi` ports (`verification.md` O-3). The weather adapter still makes two requests (current and daily) instead of the approved single `get`. `FavoritesService` still works with the legacy `Location` shape and maps it at the storage boundary. `src/core/favorites/api.ts` and `test/contract/` are not wired to a real implementation (I did not read `test/contract/`).
 - **Manual checks T-70..T-75 are all Not run:** real iOS/Android/Edge/Safari smoke, screen reader, keyboard walk-through, 200 % zoom and contrast, real Permissions API behaviour, live timing, and a real-browser CORS check that records the actual rate-limit response. The deployed-origin CSP check needs a host that is not decided (HOST).
-- **No live-API evidence** (`smoke:live` failed; see Verification). `test/live/openMeteo.live.ts` still needs the user's decision on whether to switch it to include today.
+- **Live-API evidence is limited** to the three `smoke:live` requests (geocoding, current conditions, forecast with today); see Verification. The browser CORS check and the rate-limit response are still open (T-75).
 - **Browser coverage is partial (T-61..T-64).** No browser test for Refresh, the unit toggle, a firing 10 s watchdog, the cache mode, section Retry, favorite remove or duplicate, or the error boundary. Axe does not run with the new Retry button showing. Two Retry unit-test titles promise more than they assert (over-long input; focus moving into the search form), and the `timeout` search error has no Retry test.
 - **Stale document text:** `impl-plan.md` still says "NO IMPLEMENTATION HAS BEEN DONE" and lists blocked/unblocked statuses and a test count of 51 (actual 54 files); `design-review.md` header, `architecture.md` lines 13 and 166, `requirements.md` header row 9 and `message-wording.md` line 8 still say "not approved" while other sections record approval. `README.md` also still calls TASK-046 blocked and says "not yet reviewed" for earlier work. T-10..T-15 and T-20..T-27 are not marked Done.
 - **Minor cleanup items:** the legacy test labels (`TASK-025`, `AC-00n-m`, `EC-0nn`, `FR-007`) do not match current IDs; only some tests carry `REQ-` IDs; 15 of 45 catalogue messages are not cited by any test, and only 12 were compared character by character with `message-wording.md`; `test-triage.md` lists 52 test files, the repository has 54; the device location label is always "Current location" (no reverse geocoding); the jsdom `getContext()` "Not implemented" warning appears during `npm test` (no test fails).
@@ -127,7 +127,7 @@ Automated (results above, from `verification.md`):
 - [x] `npm run lint`
 - [x] `npm run build:release` (`scan:dist`: no findings)
 - [x] `npm run test:browser` (270 tests, 5 engines)
-- [ ] `npm run smoke:live` on a network with working DNS (failed twice on 2026-11-02; run once, do not loop)
+- [x] `npm run smoke:live` on a network with working DNS (passed 3 of 3 on 2026-11-02 after two earlier DNS failures; run once, do not loop)
 
 Manual, not run:
 - [ ] T-70: real-device and real-browser smoke (iOS Safari, Android Chrome, desktop Edge and Safari) on an HTTPS test host

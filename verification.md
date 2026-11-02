@@ -1,5 +1,7 @@
 # Verification: Weather Forecasting Application
 
+> **Addendum (later on 2026-11-02): `smoke:live` now passes 3 of 3 against the real Open-Meteo API, using the app's real forecast request (today plus two days). See Section 11.** The `smoke:live` failures recorded below are the earlier run on a machine with intermittent DNS and are kept as the record of that run.
+
 | Field | Value |
 |---|---|
 | Prepared by | Verifier (local multi-agent SDLC workflow) |
@@ -231,3 +233,19 @@ Top gaps, in order of importance:
 5. User / Orchestrator: decide HOST so T-70, T-73 (mobile), T-75 (which also settles the Firefox/WebKit `no-store` preflight question) and the deployed-origin CSP check can be scheduled; perform and record T-70..T-75.
 6. Orchestrator / document owners: reconcile the stale status text listed in Section 8.
 7. Re-verification is required after any change in `src/`, `test/`, `e2e/`, `scripts/` or config. Release preparation must not treat this file as release readiness: smoke:live is failed/blocked, manual checks are Not run, and the approved adapter work is outstanding.
+
+## 11. Addendum: live smoke test re-run (2026-11-02, after the main verification run)
+
+Run by the top-level session (not by the Verifier), once the network resolved DNS again. Commands and results:
+
+| Command | Result |
+|---|---|
+| `npm run smoke:live` (before editing the test) | Exit 0, 3 of 3 passed (geocoding "Berlin", current conditions, forecast). The forecast test still called `getForecast(place, 3, false, ...)` and returned 2026-11-03..05 (tomorrow onward). |
+| Edit of `test/live/openMeteo.live.ts` (finding O-1, user-approved) | The forecast test now calls `getForecast(place, DEFAULT_CONFIG.forecastDays, DEFAULT_CONFIG.forecastIncludesToday, signal)`, asserts 3 days, and asserts the first date is today in the place's own time zone. The current-conditions test now also asserts that `isDay` is a boolean. |
+| `npm run smoke:live` (after the edit) | Exit 0, 3 of 3 passed. Forecast dates 2026-11-02, 2026-11-03, 2026-11-04 (today plus two days). Current: 9.2 C, 70 %, PARTLY_CLOUDY. |
+| `npm run typecheck`, `npm run lint` | Both clean after the edit. |
+| `npm test` | 54 files, 1439 tests passed (the live test is not part of this suite). |
+
+What this settles: the current adapter code parses the real geocoding, current-conditions (including `is_day`) and daily-forecast responses, and the request with `forecastIncludesToday: true` returns today first (finding F-1 and the first part of O-1 are closed; "No live-API evidence" in Section 9 gap 1 is closed for those three requests).
+
+What it does not settle: it runs in Node, not a browser, so it does not show whether `cache: 'no-store'` triggers a CORS preflight on Firefox and WebKit (T-75, still open); it does not observe the real rate-limit response, so the 429 = rate limited assumption is still unconfirmed; it asserts shapes and ranges only, not exact weather. It was run once and not looped.
