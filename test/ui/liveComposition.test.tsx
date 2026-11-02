@@ -6,7 +6,7 @@ import { composeLive } from '../../src/composition';
 import { createConfig } from '../../src/core/config';
 import { ok } from '../../src/core/result';
 import { App } from '../../src/ui/App';
-import { FakeLocationService, InMemoryKeyValueStore } from '../fakes';
+import { LegacyFakeLocationService, InMemoryKeyValueStore } from '../fakes';
 import { abortableHang, fixtureResponse, jsonResponse, stubFetch } from '../support/openMeteo';
 import type { RecordedCall } from '../support/openMeteo';
 
@@ -30,21 +30,20 @@ function route(call: RecordedCall): Response {
 function setup(respond: (call: RecordedCall) => Response | Promise<Response> = route, extra: Parameters<typeof composeLive>[0] = {}) {
   const stub = stubFetch(respond);
   const kv = new InMemoryKeyValueStore();
-  const c = composeLive({ fetch: stub.fetch, keyValueStore: kv, locationService: new FakeLocationService('prompt'), ...extra });
-  render(<App store={c.store} controller={c.controller} config={c.config} demo={c.demo} unconfigured={c.unconfigured} />);
+  const c = composeLive({ fetch: stub.fetch, keyValueStore: kv, locationService: new LegacyFakeLocationService('prompt'), ...extra });
+  render(<App store={c.store} controller={c.controller} config={c.config} unconfigured={c.unconfigured} />);
   return { ...c, ...stub, kv };
 }
 
 describe('composeLive (a normal build)', () => {
-  it('is live mode: not demo, not unconfigured, so the real app is shown', async () => {
+  it('is live mode: not unconfigured, so the real app is shown', async () => {
     const t = setup();
     await act(() => t.controller.start());
     expect(t.mode).toBe('live');
-    expect(t.demo).toBe(false);
     expect(t.unconfigured).toBe(false);
     expect(screen.getByLabelText('City name')).toBeTruthy();
     expect(screen.queryByText('Weather is not set up yet')).toBeNull();
-    expect(screen.queryByRole('note')).toBeNull(); // no demo notice
+    expect(screen.queryByRole('note')).toBeNull(); // no notice banner
     expect(t.calls).toHaveLength(0); // nothing is requested before the user does something
   });
 
@@ -82,6 +81,7 @@ describe('composeLive (a normal build)', () => {
       expect(call.init.method).toBe('GET');
       expect(call.init.credentials).toBe('omit');
       expect(call.init.referrerPolicy).toBe('no-referrer');
+      expect(call.init.cache).toBe('no-store');
       expect(call.init.headers).toBeUndefined();
       expect(call.url).not.toMatch(/api[_-]?key|apikey|token|secret/i);
     }
@@ -94,15 +94,15 @@ describe('composeLive (a normal build)', () => {
     await user.paste('x'.repeat(createConfig().maxInputLength + 1));
     await user.click(screen.getByRole('button', { name: 'Search' }));
     expect(await screen.findByText('That search is too long. Please enter a shorter city name.')).toBeTruthy();
-    expect(screen.queryByText(/City not found/)).toBeNull();
+    expect(screen.queryByText(/No matching city was found/)).toBeNull();
     expect(t.calls).toHaveLength(0);
   });
 
-  it('a search with no match says "City not found" (the recorded response has no results key)', async () => {
+  it('a search with no match says "No matching city was found" (the recorded response has no results key)', async () => {
     const user = userEvent.setup();
     setup(() => fixtureResponse('geocoding-no-results.json'));
     await user.type(screen.getByLabelText('City name'), 'Zzqxjkvvwpl{Enter}');
-    expect(await screen.findByText(/City not found/)).toBeTruthy();
+    expect(await screen.findByText(/No matching city was found/)).toBeTruthy();
   });
 
   it('a provider failure shows the generic service message and never provider text', async () => {
@@ -122,7 +122,7 @@ describe('composeLive (a normal build)', () => {
     await user.type(screen.getByLabelText('City name'), 'Berlin{Enter}');
     await user.click(await screen.findByRole('button', { name: 'Berlin, State of Berlin, Germany' }));
     const forecast = screen.getByRole('region', { name: 'Forecast' });
-    expect(await within(forecast).findByText(/could not be reached/)).toBeTruthy();
+    expect(await within(forecast).findByText(/Could not connect to the weather service/)).toBeTruthy();
     expect(within(forecast).getByRole('button', { name: /Retry/ })).toBeTruthy();
     const current = screen.getByRole('region', { name: 'Current weather' });
     await waitFor(() => expect(within(current).getByText('Temperature')).toBeTruthy());
@@ -155,7 +155,7 @@ describe('composeLive: timeouts come from Config', () => {
     expect(c.store.getState().search.status).toBe('loading');
     await vi.advanceTimersByTimeAsync(1);
     await pending;
-    expect(c.store.getState().search).toMatchObject({ status: 'error', error: { code: 'SERVICE_UNAVAILABLE' } });
+    expect(c.store.getState().search).toMatchObject({ status: 'error', error: { kind: 'service' } });
     expect(stub.calls[0]?.init.signal?.aborted).toBe(true);
   });
 });
@@ -163,7 +163,7 @@ describe('composeLive: timeouts come from Config', () => {
 describe('composeLive: no reverse geocoding (user answer A4 = No)', () => {
   it('a device location shows weather without a named place, calls no geocoding endpoint, and cannot be favorited', async () => {
     const user = userEvent.setup();
-    const location = new FakeLocationService('granted');
+    const location = new LegacyFakeLocationService('granted');
     location.positionScript.respondWith(ok({ lat: 12.5, lon: 77.25 }));
     const t = setup(route, { locationService: location });
     await user.click(screen.getByRole('button', { name: 'Use my location' }));
@@ -179,7 +179,7 @@ describe('composeLive: no reverse geocoding (user answer A4 = No)', () => {
 
     // The favorite control is not offered; a hint to search by name replaces it.
     expect(screen.queryByRole('button', { name: 'Add to favorites' })).toBeNull();
-    expect(screen.getByText('Search for the city by name to save it as a favorite.')).toBeTruthy();
+    expect(screen.getByText('Your current location cannot be saved. Search for the city by name to add it to your favorites.')).toBeTruthy();
 
     // The device coordinates are in the weather requests only; nothing was stored.
     expect(t.kv.data.size).toBe(0);

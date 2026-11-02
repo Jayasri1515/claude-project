@@ -5,17 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:demo": "vite --mode demo",
     "build": "tsc --noEmit && vite build",
     "build:release": "npm run build && npm run scan:dist",
-    "build:demo": "tsc --noEmit && vite build --mode demo",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "smoke:live": "vitest run --config vitest.live.config.ts --reporter=verbose --disableConsoleIntercept",
     "test:browser": "playwright test",
-    "test:browser:release": "playwright test --project=release-edge --project=release-chrome",
+    "test:browser:release": "playwright test --project=release-chromium --project=release-firefox --project=release-webkit --project=release-mobile-chromium --project=release-mobile-webkit",
     "scan:dist": "node scripts/scanDist.mjs",
-    "scan:dist:demo": "node scripts/scanDist.mjs --allow-demo",
     "lint": "eslint ."
   },
   "dependencies": {

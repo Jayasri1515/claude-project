@@ -6,7 +6,8 @@
  *
  * Each rule has a detector self-test, so a rule that can never fire is caught.
  */
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { hostOf, scanText } from '../../scripts/secretScan.mjs';
 import { REPO_ROOT, sourceFiles, stripComments } from '../support/sourceFiles';
@@ -95,32 +96,29 @@ describe('TASK-041: security and privacy rules over src/', () => {
     expect(findings).toEqual([]);
   });
 
-  it('no .env file or key file is present in the repository root', () => {
+  it('no .env file or key file is present in the repository root, except the key-less .env.example', () => {
     const names = readdirSync(REPO_ROOT).filter((n) => /^\.env/.test(n) || /\.(pem|key|p12|pfx)$/.test(n));
-    expect(names).toEqual([]);
+    expect(names.filter((n) => n !== '.env.example')).toEqual([]);
   });
 
-  it('only VITE_USE_DEMO and MODE are read from import.meta.env (nothing credential-like is injected)', () => {
-    // Always written out as import.meta.env.NAME (never the whole object), so Vite replaces each read
-    // with a literal in a build and the demo code can be removed from release bundles.
-    const used = new Map<string, Set<string>>();
-    for (const f of code) {
-      for (const m of f.text.matchAll(/import\.meta\.env(?:\.(\w+))?/g)) {
-        const names = used.get(f.path) ?? new Set<string>();
-        names.add(m[1] ?? '(whole object)');
-        used.set(f.path, names);
-      }
-    }
-    expect([...used.keys()]).toEqual(['src/main.tsx']);
-    expect([...(used.get('src/main.tsx') ?? [])].sort()).toEqual(['MODE', 'VITE_USE_DEMO']);
+  it('.env.example lists variable names only: every assignment has an empty value', () => {
+    const lines = readFileSync(join(REPO_ROOT, '.env.example'), 'utf8')
+      .split(/\r?\n/)
+      .filter((l) => l.trim() !== '' && !l.trim().startsWith('#'));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(line).toMatch(/^[A-Z][A-Z0-9_]*=$/);
   });
 
-  it('release builds can drop the demo layer: it is loaded only through a dynamic import guarded by the build-time env reads', () => {
-    const main = code.find((f) => f.path === 'src/main.tsx')?.text ?? '';
-    expect(main).toMatch(
-      /if\s*\(\s*import\.meta\.env\.MODE\s*===\s*'demo'\s*\|\|\s*import\.meta\.env\.VITE_USE_DEMO\s*===\s*'true'\s*\)\s*\{[\s\S]*?await import\('\.\/dev\/demoComposition'\)/,
-    );
-    expect(main).not.toMatch(/^\s*import\b[^;]*\bdev\//m);
+  it('nothing in src/ reads import.meta.env (no build-time switch or credential-like value reaches the bundle)', () => {
+    // The only environment value the project uses, VITE_BASE, is read by vite.config.ts at build time.
+    const readers = code.filter((f) => /import\.meta\.env\b/.test(stripComments(f.text))).map((f) => f.path);
+    expect(readers).toEqual([]);
+  });
+
+  it('main.tsx composes the real adapters only: no dynamic import and no alternative data source', () => {
+    const main = stripComments(code.find((f) => f.path === 'src/main.tsx')?.text ?? '');
+    expect(main).not.toMatch(/\bimport\s*\(/);
+    expect(main).toMatch(/composeLive\(/);
   });
 
   it('no logging anywhere in src/ (search text and coordinates cannot be logged)', () => {
@@ -251,13 +249,12 @@ describe('TASK-044 (automated part): architecture conformance of src/', () => {
 
   it('every .ts/.tsx under src/ lives in a known layer directory', () => {
     const top = new Set(code.map((f) => f.path.split('/')[1]));
-    for (const entry of top) expect(['core', 'ui', 'adapters', 'dev', 'composition.ts', 'main.tsx', 'env.d.ts']).toContain(entry);
+    for (const entry of top) expect(['core', 'ui', 'adapters', 'composition.ts', 'main.tsx', 'env.d.ts']).toContain(entry);
   });
 
-  it('the demo layer is referenced only by main.tsx (dynamic import); composition.ts and the UI never import it', () => {
-    const importers = code.filter(
-      (f) => /(?:from\s+|import\s*\(\s*)['"](\.\.?\/)+dev\//.test(f.text) && !f.path.startsWith('src/dev/'),
-    );
-    expect(importers.map((f) => f.path)).toEqual(['src/main.tsx']);
+  it('there is no src/dev layer and nothing imports one', () => {
+    expect(code.filter((f) => f.path.startsWith('src/dev/')).map((f) => f.path)).toEqual([]);
+    const importers = code.filter((f) => /(?:from\s+|import\s*\(\s*)['"](\.\.?\/)+dev\//.test(f.text));
+    expect(importers.map((f) => f.path)).toEqual([]);
   });
 });

@@ -1,13 +1,14 @@
-// Markers of the demo layer (src/dev/*) in built output. A release bundle (plain `npm run build`)
-// must contain none of them; a demo bundle (`npm run build:demo`) contains them by design.
-// Used by scripts/scanDist.mjs and checked by test/security. Not a provider fact: these are the
-// invented names the demo providers use, the demo storage-key prefix, and the names of the demo code itself.
+// Markers of the invented-data layer that existed in src/dev/* until it was removed (impl-plan T-14). It is kept as a
+// regression guard (T-50): no bundle may ever contain any of them, so a stray re-introduction fails the gate.
+// Used by scripts/scanDist.mjs and checked by test/security (the negative test injects a marker and expects a
+// failure). Not a provider fact: these are the invented names the old providers used, the old storage-key prefix,
+// and the names of the old code itself. This file and its test are the only places those words may remain.
 //
 // Two kinds of marker:
-// - structural: the demo chunk's file name, the demo code's own symbols (composeDemo, Demo*Provider, ...)
-//   and the demo storage prefix. These do not depend on what the invented data looks like.
+// - structural: the old chunk's file name, the old code's own symbols (composeDemo, Demo*Provider, ...) and the old
+//   storage prefix. These do not depend on what the invented data looks like.
 // - content: the invented place names. They catch the data if the structure ever changes.
-// Minifiers may rename local symbols, so a missing symbol is not proof that the demo code is absent.
+// Minifiers may rename local symbols, so a missing symbol is not proof that the old code is absent.
 
 /** @type {ReadonlyArray<{ name: string, pattern: RegExp }>} */
 export const DEMO_MARKERS = [

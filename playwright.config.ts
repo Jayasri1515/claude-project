@@ -1,25 +1,37 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Real-browser checks (TASK-039, TASK-040, TASK-041, TASK-043). Run with `npm run test:browser`.
- * They use the browsers already installed on the machine (Microsoft Edge and Google
- * Chrome, via the `channel` option), so nothing is downloaded. Firefox and Safari are
- * NOT covered: Playwright cannot drive the system copies of those, and none is installed
- * here.
+ * Real-browser checks. Run with `npm run test:browser`.
+ * Engines (architecture 7.0): Chromium, Firefox and WebKit, on a desktop viewport and as emulated mobile devices
+ * (a Chromium-based phone and a WebKit-based phone). They are the browsers Playwright downloads itself
+ * (`npx playwright install chromium firefox webkit`); the machine's Edge, Chrome and Safari are NOT driven here, and
+ * real iOS, Android, Edge and Safari checks are manual (impl-plan T-70).
  *
- * Two servers are started:
- * - the DEMO dev server (invented data) on port 4173 for the edge/chrome projects (every spec but release.spec.ts);
- * - `vite preview` of the plain RELEASE build on port 4174, served under /claude-project/, for the release-edge/release-chrome projects
- *   (e2e/release.spec.ts). Its command runs `npm run build:release` first (type check, production build, then
- *   scan:dist), so that project tests exactly what the documented release path produces. It overwrites dist/.
- * `npm run test:browser:release` runs only the release projects.
+ * Server started: `vite preview` of the RELEASE build on port 4174, served under RELEASE_BASE_PATH, for the release-*
+ * projects (e2e/release.spec.ts). Its command runs `npm run build:release` first (type check, production build, then
+ * scan:dist), so that project tests exactly what the documented release path produces. It overwrites dist/.
+ * `npm run test:browser:release` runs the same projects.
+ *
+ * Specs (all against the release build, Open-Meteo intercepted, shared helpers in e2e/support.ts):
+ * release.spec.ts (build, requests, privacy, credits), accessibility.spec.ts (axe in every main state, T-62),
+ * layout.spec.ts (breakpoints, scroll, targets, T-63) and browserApis.spec.ts (geolocation and localStorage cases,
+ * T-61). The feature specs that depended on the invented-data dev server were removed by impl-plan T-14.
  */
-const DEMO_PORT = 4173;
 const RELEASE_PORT = 4174;
-// Release builds are made for the GitHub Pages project site path (scripts/baseUrl.mjs), and `vite preview` serves them
-// under it, so the release projects open the app at this path. (Nothing is published: this is a local server only.)
-const RELEASE_BASE_PATH = '/claude-project/';
+// The release build is made for a non-root base on purpose, so the spec proves that every asset and link follows the
+// configured base (VITE_BASE, scripts/baseUrl.mjs). The default of the app itself is "/". This path is test-only.
+// Override with E2E_BASE_PATH if needed.
+const RELEASE_BASE_PATH = process.env.E2E_BASE_PATH ?? '/weather-e2e/';
 const RELEASE_URL = `http://localhost:${RELEASE_PORT}${RELEASE_BASE_PATH}`;
+
+/** The engine/device matrix. */
+const ENGINES = [
+  { name: 'chromium', use: devices['Desktop Chrome'] },
+  { name: 'firefox', use: devices['Desktop Firefox'] },
+  { name: 'webkit', use: devices['Desktop Safari'] },
+  { name: 'mobile-chromium', use: devices['Pixel 7'] },
+  { name: 'mobile-webkit', use: devices['iPhone 14'] },
+] as const;
 
 export default defineConfig({
   testDir: 'e2e',
@@ -32,22 +44,16 @@ export default defineConfig({
   use: { trace: 'off' },
   webServer: [
     {
-      command: `npx vite --mode demo --port ${DEMO_PORT} --strictPort`,
-      url: `http://localhost:${DEMO_PORT}`,
-      reuseExistingServer: false,
-      timeout: 60_000,
-    },
-    {
       command: `npm run build:release && npx vite preview --port ${RELEASE_PORT} --strictPort`,
       url: RELEASE_URL,
       reuseExistingServer: false,
       timeout: 180_000,
+      env: { VITE_BASE: RELEASE_BASE_PATH },
     },
   ],
-  projects: [
-    { name: 'edge', testIgnore: 'release.spec.ts', use: { channel: 'msedge', baseURL: `http://localhost:${DEMO_PORT}` } },
-    { name: 'chrome', testIgnore: 'release.spec.ts', use: { channel: 'chrome', baseURL: `http://localhost:${DEMO_PORT}` } },
-    { name: 'release-edge', testMatch: 'release.spec.ts', use: { channel: 'msedge', baseURL: RELEASE_URL } },
-    { name: 'release-chrome', testMatch: 'release.spec.ts', use: { channel: 'chrome', baseURL: RELEASE_URL } },
-  ],
+  projects: ENGINES.map(({ name, use }) => ({
+    name: `release-${name}`,
+    testMatch: ['release.spec.ts', 'accessibility.spec.ts', 'layout.spec.ts', 'browserApis.spec.ts'],
+    use: { ...use, baseURL: RELEASE_URL },
+  })),
 });

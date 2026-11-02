@@ -4,13 +4,13 @@
  * dismiss. It renders message IDs through the central table only, so no raw
  * error text, stack, URL or credential can appear.
  *
- * This is the ONLY place the loading text (searching, finding the location,
+ * This is the ONLY place the loading text (searching, detecting the location,
  * loading, refreshing) is rendered, so it is announced exactly once. Dismissing
  * a message removes the focused button, so focus moves to the next Dismiss
  * button, or to the page title when none is left (NFR-003).
  *
  * The loading text is derived from store state and appears in the same render
- * that the state changes, which is within Config.loadingIndicatorMaxDelayMs.
+ * that the state changes, with no deliberate delay (render budget 200 ms, architecture 7 item 4).
  */
 import { useRef } from 'react';
 import { message } from '../core/messages';
@@ -46,6 +46,8 @@ export function StatusArea() {
     <section className="status-area" ref={areaRef} aria-label={message('ui.status.label')}>
       <LiveMessage>
         {loadingText !== undefined ? <p className="loading">{loadingText}</p> : null}
+        {/* DR-20 / M-14: shown whenever the waiting text is, because a prompt left open never times out. */}
+        {state.locationFlow.status === 'locating' ? <p className="note">{message('ui.location.searchInstead')}</p> : null}
         {state.messages.map((item) => (
           <p key={item.id} className="transient-message">
             <span>{message(item.messageId)}</span>{' '}

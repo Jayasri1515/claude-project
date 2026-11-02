@@ -1,11 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   celsiusToFahrenheit,
   convertTemperature,
-  formatDataFrom,
+  FORECAST_DATE_LOCALE,
+  formatCurrentUpdated,
   formatDateTime,
   formatForecastDate,
   formatForecastRange,
+  formatForecastUpdated,
   formatHumidity,
   formatLabeledHumidity,
   formatLabeledTemperature,
@@ -14,8 +16,8 @@ import {
   formatTime,
 } from '../../src/core/format';
 import formatSource from '../../src/core/format.ts?raw';
-import { MESSAGES, message, messageForError } from '../../src/core/messages';
-import { appError, APP_ERROR_CODES } from '../../src/core/errors';
+import { MESSAGES, message } from '../../src/core/messages';
+import { appError, PRESENTABLE_ERROR_KINDS } from '../../src/core/errors';
 
 const en = { locale: 'en-US' };
 
@@ -102,7 +104,7 @@ describe('dates and times', () => {
   ])('%s (%s): the same instant reads %s on the next/same calendar day', (_label, zone, time, date) => {
     expect(formatTime(instant, { ...en, timeZone: zone })).toBe(time);
     expect(formatDateTime(instant, { ...en, timeZone: zone })).toContain(date);
-    expect(formatLastUpdated(instant, { ...en, timeZone: zone })).toBe(`Last updated ${time}`);
+    expect(formatLastUpdated(instant, { ...en, timeZone: zone })).toBe(`Updated ${time}`);
   });
 
   it('falls back to the device zone for an invalid zone name instead of throwing', () => {
@@ -118,6 +120,22 @@ describe('dates and times', () => {
     expect(formatForecastDate('2026-12-31', en)).toBe('Thu, Dec 31');
   });
 
+  it('forecast dates are English whatever the device locale: no locale given means "en" (Q27)', () => {
+    const spy = vi.spyOn(Intl, 'DateTimeFormat');
+    try {
+      expect(formatForecastDate('2026-03-05')).toBe('Thu, Mar 5');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]?.[0]).toBe(FORECAST_DATE_LOCALE);
+      expect(FORECAST_DATE_LOCALE).toBe('en');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('an explicitly passed locale still wins over the English default', () => {
+    expect(formatForecastDate('2026-03-05', { locale: 'de-DE' })).toContain('März');
+  });
+
   it('invalid dates show Unavailable', () => {
     expect(formatForecastDate('2026-02-30', en)).toBe('Unavailable');
     expect(formatForecastDate('not a date', en)).toBe('Unavailable');
@@ -127,11 +145,16 @@ describe('dates and times', () => {
     expect(formatDateTime(undefined)).toBe('Unavailable');
   });
 
-  it('last updated and data-from text include the time', () => {
-    expect(formatLastUpdated(instant, { ...en, timeZone: 'UTC' })).toBe('Last updated 11:30 PM');
-    expect(formatDataFrom(instant, { ...en, timeZone: 'UTC' })).toBe('Showing data from 11:30 PM');
+  it('update-time lines for the two-line form carry their section name (M-32, M-33)', () => {
+    expect(formatCurrentUpdated(instant, { ...en, timeZone: 'UTC' })).toBe('Current weather updated 11:30 PM');
+    expect(formatForecastUpdated(instant, { ...en, timeZone: 'UTC' })).toBe('Forecast updated 11:30 PM');
+    expect(formatCurrentUpdated(undefined)).toBe('Unavailable');
+    expect(formatForecastUpdated(new Date(Number.NaN))).toBe('Unavailable');
+  });
+
+  it('last updated text includes the time', () => {
+    expect(formatLastUpdated(instant, { ...en, timeZone: 'UTC' })).toBe('Updated 11:30 PM');
     expect(formatLastUpdated(undefined)).toBe('Unavailable');
-    expect(formatDataFrom(undefined)).toBe('Unavailable');
   });
 });
 
@@ -146,8 +169,8 @@ describe('message table', () => {
   });
 
   it('error messages are static: no placeholders, URLs or secrets', () => {
-    for (const code of APP_ERROR_CODES) {
-      const text = messageForError(appError(code));
+    for (const code of PRESENTABLE_ERROR_KINDS) {
+      const text = message(appError(code).messageKey);
       expect(text).not.toMatch(/\{\w+\}/);
       expect(text).not.toMatch(/https?:\/\//i);
     }
@@ -165,6 +188,7 @@ describe('UI text lives only in the message table', () => {
       'numeric',
       '2-digit',
       'short',
+      'en', // the locale tag of the English-only forecast dates (Q27), not UI text
       // Property names used in a type-level Pick, not UI text.
       'tempMaxC',
       'tempMinC',

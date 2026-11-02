@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  COORDINATE_DECIMALS,
   FORECAST_URL,
   OpenMeteoWeatherProvider,
   roundCoordinate,
 } from '../../../src/adapters/openMeteo/weather';
+import { DEFAULT_CONFIG } from '../../../src/core/config';
 import type { Location } from '../../../src/core/domain';
 import { formatForecastDate, formatTime } from '../../../src/core/format';
 import type { AppError } from '../../../src/core/errors';
@@ -33,7 +33,7 @@ const berlin: Location = {
 };
 
 const signal = (): AbortSignal => new AbortController().signal;
-const codeOf = <T>(result: Result<T, AppError>): string | undefined => (result.ok ? undefined : result.error.code);
+const codeOf = <T>(result: Result<T, AppError>): string | undefined => (result.ok ? undefined : result.error.kind);
 
 /** The recorded current response with `patch` merged into its `current` block. */
 function currentWith(patch: Record<string, unknown>, top: Record<string, unknown> = {}): Record<string, unknown> {
@@ -63,6 +63,39 @@ describe('getCurrent: recorded response', () => {
     expect(result.value.conditionText).toBe('Mainly clear');
     // "2026-10-26T19:45" in a zone at UTC+1 (utc_offset_seconds 3600) is 18:45 UTC.
     expect(result.value.observedAt?.toISOString()).toBe('2026-10-26T18:45:00.000Z');
+  });
+});
+
+describe('getCurrent: day/night flag (is_day)', () => {
+  const get = async (body: unknown) => {
+    const { fetch } = stubFetch(() => jsonResponse(body));
+    return new OpenMeteoWeatherProvider({ fetch }).getCurrent(berlin, signal());
+  };
+
+  it('is_day 1 is day and is_day 0 is night', async () => {
+    const day = await get(currentWith({ is_day: 1 }));
+    const night = await get(currentWith({ is_day: 0 }));
+    expect(day.ok && day.value.isDay).toBe(true);
+    expect(night.ok && night.value.isDay).toBe(false);
+  });
+
+  it.each([[undefined], [null], [2], ['1'], [true]])('is_day %j leaves the flag absent (never guessed)', async (raw) => {
+    const result = await get(currentWith({ is_day: raw }));
+    expect(result.ok && result.value).not.toHaveProperty('isDay');
+  });
+
+  it('the recorded response carries no flag, so none is invented', async () => {
+    const { fetch } = stubFetch(() => fixtureResponse('forecast-current.json'));
+    const result = await new OpenMeteoWeatherProvider({ fetch }).getCurrent(berlin, signal());
+    expect(result.ok && result.value).not.toHaveProperty('isDay');
+  });
+
+  it('drizzle codes are DRIZZLE in the current block and per forecast day', async () => {
+    const current = await get(currentWith({ weather_code: 53 }));
+    expect(current.ok && current.value.condition).toBe('DRIZZLE');
+    const { fetch } = stubFetch(() => jsonResponse(dailyWith({ weather_code: [51, 61, 57, 66] })));
+    const result = await new OpenMeteoWeatherProvider({ fetch }).getForecast(berlin, 3, true, signal());
+    expect(result.ok && result.value.map((d) => d.condition)).toEqual(['DRIZZLE', 'RAIN', 'DRIZZLE']);
   });
 });
 
@@ -287,13 +320,13 @@ describe('units are Celsius and percent, or the response is rejected', () => {
   it('a response that reports Fahrenheit for the current temperature is rejected, not mis-labelled', async () => {
     const body = { ...fixtureJson('forecast-current.json'), current_units: { temperature_2m: '°F', relative_humidity_2m: '%' } };
     const { fetch } = stubFetch(() => jsonResponse(body));
-    expect(codeOf(await new OpenMeteoWeatherProvider({ fetch }).getCurrent(berlin, signal()))).toBe('SERVICE_UNAVAILABLE');
+    expect(codeOf(await new OpenMeteoWeatherProvider({ fetch }).getCurrent(berlin, signal()))).toBe('invalid_response');
   });
 
   it('a response that reports Fahrenheit for the daily temperatures is rejected', async () => {
     const body = { ...fixtureJson('forecast-daily.json'), daily_units: { temperature_2m_max: '°F', temperature_2m_min: '°F' } };
     const { fetch } = stubFetch(() => jsonResponse(body));
-    expect(codeOf(await new OpenMeteoWeatherProvider({ fetch }).getForecast(berlin, 3, false, signal()))).toBe('SERVICE_UNAVAILABLE');
+    expect(codeOf(await new OpenMeteoWeatherProvider({ fetch }).getForecast(berlin, 3, false, signal()))).toBe('invalid_response');
   });
 
   it('asks for Celsius explicitly', async () => {
@@ -309,39 +342,57 @@ describe('failures map to the error model', () => {
   it.each([
     ['recorded 400 (bad variable)', () => fixtureResponse('forecast-error-400.json', 400)],
     ['recorded 400 (bad coordinates)', () => fixtureResponse('forecast-error-bad-coords.json', 400)],
-    ['429 rate limit', () => jsonResponse({ error: true, reason: 'Too many requests' }, 429)],
     ['500', () => jsonResponse('', 500)],
     ['503', () => jsonResponse('', 503)],
     ['200 with error true', () => jsonResponse({ error: true, reason: 'x' })],
+  ])('getCurrent: %s is SERVICE_UNAVAILABLE', async (_label, respond) => {
+    const result = await provider(respond).getCurrent(berlin, signal());
+    expect(codeOf(result)).toBe('service');
+    expect(JSON.stringify(result)).not.toMatch(/Too many|reason|html|Latitude/i);
+  });
+
+  it.each([
     ['not JSON', () => jsonResponse('<html>bad gateway</html>')],
     ['truncated JSON', () => jsonResponse(fixtureText('forecast-current.json').slice(0, 60))],
     ['null body', () => jsonResponse('null')],
     ['array body', () => jsonResponse('[]')],
     ['no current block', () => jsonResponse({ latitude: 1 })],
     ['current is a string', () => jsonResponse({ current: 'warm' })],
-  ])('getCurrent: %s is SERVICE_UNAVAILABLE', async (_label, respond) => {
+  ])('getCurrent: %s is INVALID_RESPONSE (M-06)', async (_label, respond) => {
     const result = await provider(respond).getCurrent(berlin, signal());
-    expect(codeOf(result)).toBe('SERVICE_UNAVAILABLE');
+    expect(codeOf(result)).toBe('invalid_response');
     expect(JSON.stringify(result)).not.toMatch(/Too many|reason|html|Latitude/i);
   });
 
   it.each([
     ['recorded 400', () => fixtureResponse('forecast-error-400.json', 400)],
-    ['429 rate limit', () => jsonResponse({ error: true }, 429)],
+  ])('getForecast: %s is SERVICE_UNAVAILABLE', async (_label, respond) => {
+    expect(codeOf(await provider(respond).getForecast(berlin, 3, false, signal()))).toBe('service');
+  });
+
+  it.each([
     ['not JSON', () => jsonResponse('nope')],
     ['no daily block', () => jsonResponse({ latitude: 1 })],
     ['daily.time is not an array', () => jsonResponse({ daily: { time: 'today' } })],
     ['daily is an array', () => jsonResponse({ daily: [] })],
-  ])('getForecast: %s is SERVICE_UNAVAILABLE', async (_label, respond) => {
-    expect(codeOf(await provider(respond).getForecast(berlin, 3, false, signal()))).toBe('SERVICE_UNAVAILABLE');
+  ])('getForecast: %s is INVALID_RESPONSE (M-06)', async (_label, respond) => {
+    expect(codeOf(await provider(respond).getForecast(berlin, 3, false, signal()))).toBe('invalid_response');
+  });
+
+  it('HTTP 429 is RATE_LIMITED for both calls and the error body never escapes', async () => {
+    const p = provider(() => jsonResponse({ error: true, reason: 'Too many requests' }, 429));
+    const current = await p.getCurrent(berlin, signal());
+    expect(codeOf(current)).toBe('rate_limited');
+    expect(JSON.stringify(current)).not.toMatch(/Too many|reason/i);
+    expect(codeOf(await p.getForecast(berlin, 3, false, signal()))).toBe('rate_limited');
   });
 
   it('a network failure is NETWORK for both calls', async () => {
     const p = provider(() => {
       throw new TypeError('Failed to fetch');
     });
-    expect(codeOf(await p.getCurrent(berlin, signal()))).toBe('NETWORK');
-    expect(codeOf(await p.getForecast(berlin, 3, false, signal()))).toBe('NETWORK');
+    expect(codeOf(await p.getCurrent(berlin, signal()))).toBe('network');
+    expect(codeOf(await p.getForecast(berlin, 3, false, signal()))).toBe('network');
   });
 
   it.each([
@@ -350,8 +401,8 @@ describe('failures map to the error model', () => {
   ])('%s makes no request and fails cleanly', async (_label, location) => {
     const { fetch, calls } = stubFetch(() => fixtureResponse('forecast-current.json'));
     const p = new OpenMeteoWeatherProvider({ fetch });
-    expect(codeOf(await p.getCurrent(location, signal()))).toBe('SERVICE_UNAVAILABLE');
-    expect(codeOf(await p.getForecast(location, 3, false, signal()))).toBe('SERVICE_UNAVAILABLE');
+    expect(codeOf(await p.getCurrent(location, signal()))).toBe('service');
+    expect(codeOf(await p.getForecast(location, 3, false, signal()))).toBe('service');
     expect(calls).toHaveLength(0);
   });
 
@@ -368,8 +419,8 @@ describe('abort and timeout', () => {
     const controller = new AbortController();
     controller.abort();
     const p = new OpenMeteoWeatherProvider({ fetch });
-    expect((await p.getCurrent(berlin, controller.signal)).ok).toBe(false);
-    expect((await p.getForecast(berlin, 3, false, controller.signal)).ok).toBe(false);
+    expect(codeOf(await p.getCurrent(berlin, controller.signal))).toBe('aborted');
+    expect(codeOf(await p.getForecast(berlin, 3, false, controller.signal))).toBe('aborted');
     expect(calls).toHaveLength(0);
   });
 
@@ -384,8 +435,8 @@ describe('abort and timeout', () => {
     const current = p.getCurrent(berlin, controller.signal);
     const forecast = p.getForecast(berlin, 3, false, controller.signal);
     controller.abort();
-    expect((await current).ok).toBe(false);
-    expect((await forecast).ok).toBe(false);
+    expect(codeOf(await current)).toBe('aborted');
+    expect(codeOf(await forecast)).toBe('aborted');
     expect(seen.every((s) => s?.aborted === true)).toBe(true);
   });
 
@@ -394,7 +445,7 @@ describe('abort and timeout', () => {
     const controller = new AbortController();
     const pending = new OpenMeteoWeatherProvider({ fetch }).getCurrent(berlin, controller.signal);
     controller.abort();
-    expect((await pending).ok).toBe(false);
+    expect(codeOf(await pending)).toBe('aborted');
   });
 
   it('aborting while the body is being read also settles', async () => {
@@ -406,7 +457,7 @@ describe('abort and timeout', () => {
     const pending = new OpenMeteoWeatherProvider({ fetch: () => Promise.resolve(hangingBody) }).getCurrent(berlin, controller.signal);
     await Promise.resolve();
     controller.abort();
-    expect((await pending).ok).toBe(false);
+    expect(codeOf(await pending)).toBe('aborted');
   });
 
   it('a request that outlives timeoutMs is TIMEOUT for both calls', async () => {
@@ -416,8 +467,8 @@ describe('abort and timeout', () => {
     const current = p.getCurrent(berlin, signal());
     const forecast = p.getForecast(berlin, 3, false, signal());
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(codeOf(await current)).toBe('TIMEOUT');
-    expect(codeOf(await forecast)).toBe('TIMEOUT');
+    expect(codeOf(await current)).toBe('timeout');
+    expect(codeOf(await forecast)).toBe('timeout');
   });
 
   it('a fast response leaves no timer running', async () => {
@@ -444,13 +495,24 @@ describe('request construction (HTTPS only, no key, encoded values)', () => {
       longitude: '13.41', // 13.41053 rounded to 2 decimals (L2)
       timezone: 'auto',
       temperature_unit: 'celsius',
-      current: 'temperature_2m,relative_humidity_2m,weather_code',
+      current: 'temperature_2m,relative_humidity_2m,weather_code,is_day',
     });
     expect(call?.init.method).toBe('GET');
     expect(call?.init.headers).toBeUndefined();
     expect(call?.init.credentials).toBe('omit');
     expect(call?.init.referrerPolicy).toBe('no-referrer');
     expect(call?.url).not.toMatch(/api[_-]?key|apikey|token|secret/i);
+  });
+
+  it('sends both weather requests with cache "no-store", so stale weather is never served from the HTTP cache (architecture 3.9, R10)', async () => {
+    const { fetch, calls } = stubFetch((call) =>
+      fixtureResponse(new URL(call.url).searchParams.has('daily') ? 'forecast-daily.json' : 'forecast-current.json'),
+    );
+    const provider = new OpenMeteoWeatherProvider({ fetch });
+    await provider.getCurrent(berlin, signal());
+    await provider.getForecast(berlin, 3, true, signal());
+    expect(calls).toHaveLength(2);
+    for (const call of calls) expect(call.init.cache, call.url).toBe('no-store');
   });
 
   it('getForecast: documented parameters, daily variables, timezone=auto', async () => {
@@ -484,8 +546,8 @@ describe('request construction (HTTPS only, no key, encoded values)', () => {
 });
 
 describe('coordinates are rounded to 2 decimals before they are sent (L2)', () => {
-  it('uses 2 decimals', () => {
-    expect(COORDINATE_DECIMALS).toBe(2);
+  it('uses 2 decimals (Config.coordinateDecimals)', () => {
+    expect(DEFAULT_CONFIG.coordinateDecimals).toBe(2);
   });
 
   it.each([
@@ -553,7 +615,7 @@ describe('coordinates are rounded to 2 decimals before they are sent (L2)', () =
   it('a non-finite coordinate is still refused without a request', async () => {
     const { fetch, calls } = stubFetch(() => fixtureResponse('forecast-current.json'));
     const result = await new OpenMeteoWeatherProvider({ fetch }).getCurrent({ ...berlin, latitude: Number.NaN }, signal());
-    expect(codeOf(result)).toBe('SERVICE_UNAVAILABLE');
+    expect(codeOf(result)).toBe('service');
     expect(calls).toHaveLength(0);
   });
 });

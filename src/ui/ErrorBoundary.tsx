@@ -47,7 +47,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!this.state.failed) return this.props.children;
     return (
       <div role="alert" className="error-boundary" tabIndex={-1} ref={this.alertRef}>
-        <p>{message('ui.unexpectedError')}</p>
+        <p>{message('ui.errorBoundary')}</p>
         <button type="button" onClick={this.reset}>
           {message('ui.tryAgain')}
         </button>

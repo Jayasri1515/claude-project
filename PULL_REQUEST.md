@@ -1,160 +1,142 @@
-# Weather application, initial version (0.0.0)
+# Rework weather app to the approved design (partial, not complete)
 
-> **Status.** This branch (`feature/weather-app`) is pushed to the repository on top of a setup-only `main`. Nothing is merged, tagged, deployed or published, no GitHub workflow exists, and GitHub Pages is off. Publishing needs the user's separate, explicit authorization. TASK-046 (release readiness) is **not approved**. This description must not be read as a statement that the app is ready to release.
+> **Local draft only.** No pull request exists. Nothing was committed, pushed or published, and publishing needs the user's explicit authorization, which has not been given. Source branch `feature/weather-app`, target `main`. Everything described here is uncommitted in the working tree on top of `50bf7d8` (`git status --short`: 144 paths; `git diff --stat HEAD`: 125 tracked files, 6619 insertions, 6018 deletions; 19 untracked paths).
 >
-> **Scope note.** This pull request is the first feature branch (`feature/weather-app`) on top of a setup-only `main` (agent definitions and user story), so the diff is the whole application. Before the branch was created the project folder was not a git repository, so there was no earlier history to read. The content below is derived from the artifacts (`requirements.md`, `architecture.md`, `design-review.md`, `impl-plan.md`, `verification.md` Run 4, `docs/provider-checklist.md`, `docs/deployment.md`, `README.md`), `package.json` and the real file tree. The user approved the local commits and the push of both branches on 2026-10-27 (own messages in the session); merging, tagging, deployment and publishing are not approved.
+> **This branch is not complete against `impl-plan.md`.** See "Known limitations and not done". It is not release-ready.
 
 ## Summary
 
-An initial responsive web app (TypeScript, React 19, Vite; `package.json` version `0.0.0`, private) that lets a visitor search for a city or use the device location, and see current weather and a 3-day forecast, with refresh, a Celsius/Fahrenheit toggle and favorites kept in the browser. Weather and place search come directly from the keyless Open-Meteo APIs over HTTPS. There is no server, no account and no API key.
+- Reworks the existing React/TypeScript/Vite weather app (search by city or device location, current weather, a forecast, refresh, saved favorites, Open-Meteo, no API key) towards the approved requirements and architecture (`requirements.md` approved 2026-10-30; `architecture.md` approved with conditions).
+- User-visible behaviour: the app asks for the device location when it opens, shows the forecast as today plus two days ("Today" label), adds distinct messages for rate limit, unreadable response and no connection, a Retry for a failed search, "City, Country" / "City, State" search qualifiers, and drizzle and day/night icons.
+- Privacy and security: an always-visible footer disclosure (searched city and rounded device location go to Open-Meteo, which may log coordinates for 90 days), `cache: 'no-store'` on provider requests, a Content-Security-Policy meta tag, and new release-build gate checks (no service worker, 200,000 byte gzipped JS budget, CSP present).
+- **Breaking for anyone with saved favorites:** the stored favorites shape changed and old favorites are discarded, not migrated.
+- Removes the invented-data ("demo") mode and its scripts, source, tests and harness.
+- Replaces the Edge/Chrome browser tests with 270 Playwright tests across five engines (Chromium, Firefox, WebKit, emulated Pixel 7 and iPhone 14).
+- Several important items are NOT done or NOT verified: no live-API evidence, no manual device checks, and the approved port migration is unfinished.
 
-Requirements: `requirements.md` (approved 2026-10-26; open questions OQ-001 to OQ-014 still TBD). Design: `architecture.md` Revision 2 (approved with conditions on 2026-10-26, not re-reviewed). Task list and statuses: `impl-plan.md`.
+## Changes made
 
-## Changes Made
+### Location and privacy
+- Position requested at launch; "Use my location" asks again (`src/core/locationFlow.ts`, `src/core/appController.ts`).
+- App-owned 10 s location watchdog; the browser `timeout` option is no longer passed; the Permissions API "change" event is used while waiting (`src/adapters/web/geolocation.ts`). Two timeout texts, M-10 and M-11.
+- Footer privacy disclosure (M-24, option A) always shown; `aria-describedby` on the location button removed (`src/ui/Footer.tsx`).
 
-All items are new (initial version). See `CHANGELOG.md` for the grouped list. In short:
+### Search
+- Qualifier rules: text is split at the first comma; only the first part goes to the geocoder; the rest filters by region or country, case-insensitive, whole value (`src/core/search.ts`). Up to 20 candidates are fetched for a qualified search, 5 are shown.
+- Retry (M-34) for a failed search, re-submitting the last submitted text (`src/ui/SearchPanel.tsx`).
+- Refresh is ignored while a search is pending; late results for an old selection are discarded.
 
-- **Core logic** (`src/core/`): services, controller, store, config, message table. No browser or provider code.
-- **Browser adapters** (`src/adapters/web/`): `localStorage` and Geolocation.
-- **Open-Meteo adapters** (`src/adapters/openMeteo/`): search and weather adapters and the weather-code table. Plain GETs, no custom headers, `credentials: 'omit'`, `referrerPolicy: 'no-referrer'`, latitude/longitude rounded to 2 decimals.
-- **UI** (`src/ui/`): search, current weather, 3-day forecast, refresh, unit toggle, favorites, "Use my location", status and error areas, footer and in-panel attribution, Lucide icons (8 bundled), responsive layout (wide tier 768 px, extra-wide 1024 px; wide-screen visual order equals tab order).
-- **Opt-in demo mode** (`src/dev/`): invented data, loaded only in `dev:demo` / `build:demo`, left out of normal and release builds.
-- **Build and release guard** (`scripts/`): `build:release` = build + `scan:dist`; refusal to build with `VITE_USE_DEMO=true`; base path `/claude-project/` (`VITE_BASE` overrides).
-- **Tests** (`test/`, `e2e/`): Vitest (51 test files), Playwright in installed Edge and Chrome (4 spec files), a manual live smoke test.
-- **Docs**: `README.md`, `docs/deployment.md`, `docs/provider-checklist.md`.
+### Weather display
+- `forecastIncludesToday` is now `true`; the first forecast row reads "Today" (M-30) (`src/core/config.ts`, `src/ui/ForecastList.tsx`).
+- New drizzle icon and night variants for clear and partly cloudy; "Sunny" by day, "Clear" at night or when day/night is unknown (`src/core/conditions.ts`, `src/ui/weatherIcons.ts`).
+- Section-level failure messages (M-25, M-26) with Retry, and an out-of-date notice for kept values (M-27) (`src/ui/sectionFailure.ts`).
 
-## Test Evidence
+### Provider adapters
+- `cache: 'no-store'` on every request; HTTP 429 maps to rate-limited (M-05); an unreadable body maps to invalid response (M-06); a cancelled request is an internal "aborted" outcome (`src/adapters/openMeteo/http.ts`).
 
-**There is no CI, and the history is a setup-only `main` plus the commits on `feature/weather-app`.** The evidence is the Verifier's Run 4 record, `verification.md` (started 2026-10-27 02:19 local, commands run in this folder). Earlier runs (1-3) are superseded and not cited. "Reported" means stated in an artifact; this description did **not** re-run anything.
+### Favorites storage (breaking)
+- Stored record changes from `{version, favorites}` to `{v, items}` with `centroid`, `providerId` and `timeZoneHint`. The old shape is discarded with the notice M-16 and no migration (`src/core/favorites/favoritesService.ts`).
 
-### What the Verifier ran (verification.md Run 4, section R4.1)
+### Build, security and tooling
+- CSP as a `<meta>` tag added on `vite build` (`scripts/csp.mjs`, `vite.config.ts`).
+- `scan:dist` also fails on a service worker, an over-budget bundle, or a missing/loose CSP (`scripts/scanDistLib.mjs`).
+- `package.json`: scripts `dev:demo`, `build:demo`, `scan:dist:demo` removed; `test:browser:release` now selects the five `release-*` projects.
+- `playwright.config.ts`: five bundled-engine projects; e2e served under `/weather-e2e/`.
 
-| Command | Result recorded |
-|---------|-----------------|
-| `npm run typecheck` | exit 0 |
-| `npm test` | exit 0; 51 files, **1199 passed**, 0 failed, 0 skipped |
-| `npm run lint` | exit 0 |
-| `npm run build` | exit 0; JS 276.11 kB (85.13 kB gzip) |
-| `npm run build:release` / `npm run scan:dist` | exit 0; 4 files scanned, 8 icons, no findings |
-| `VITE_USE_DEMO=true npm run build:release` (negative) | exit 1 as expected ("Refusing to build") |
-| `npm run build:demo`, `npm run scan:dist:demo` | exit 0 |
-| `npm run scan:dist` on the demo build (negative) | exit 1 as expected (10 findings) |
-| `npm run test:browser` | exit 0; **126 passed** (Edge 49, Chrome 49, release-edge 14, release-chrome 14). Uses demo data or recorded Open-Meteo responses; **no live API call** |
-| `npm audit` | exit 0; 0 vulnerabilities (single run) |
-| `npm run smoke:live` (once) | exit 0; 3 real requests, 3 passed |
-| TASK-042 latency probes | 96 real requests in total, no error; see NFR-004 below |
-| 19 temporary mutation spot-checks of `src/` | 17 caught, 2 survived (icon swaps); source restored and a SHA-256 comparison of 163 files was identical |
+### Removed
+- `src/dev/` demo layer, `scripts/releaseGuard.*`, `e2e/harness.*`, and their tests (`test/security/releaseGuard.test.ts`, `test/ui/demoMode.test.tsx`, `test/ui/composition.test.tsx`).
 
-### Newer than Run 4: Implementer-reported only, not Verifier-verified
+### Documents
+- Updated: `README.md`, `docs/deployment.md`, `requirements.md`, `architecture.md`, `design-review.md`, `impl-plan.md`, `verification.md`, `.claude/agents/sdlc-orchestrator.md`.
+- Untracked and new: `message-wording.md`, `provider-verification.md`, `conformance-review.md`, `test-triage.md`, `.env.example`, `test/contract/`.
+- `documentation.md` shows as deleted in the working tree; another agent is writing it, so it is not covered here.
 
-- After Run 4 the Implementer reported pinning every weather condition to its specific Lucide icon in `test/ui/weatherIcon.test.tsx` (this closes the two surviving mutants M7 and M7b; `impl-plan.md` TASK-035, "Icon mapping pinned"). The orchestrator reported **1209 unit tests** after that change (Implementer-reported after the final icon test pin; Verifier Run 4 verified 1199). **The only Verifier-recorded count is 1199; 1209 is mentioned in `verification.md` only in the top correction note, as Implementer-reported.** File timestamps are consistent with `test/ui/weatherIcon.test.tsx` being the only file changed after Run 4's recorded work, but timestamps are not proof (restoring files after mutations also changes them). Per `verification.md` R4.9, any change since 02:19 needs re-verification, and **it has not been re-verified by the Verifier**.
+## Verification
 
-### NFR-004 (accepted by the user; measured on one machine and network)
+All figures are from `verification.md` (runs on 2026-11-02, 15:16 to 15:24 IST, HEAD `50bf7d8` plus the uncommitted changes). I did not re-run any command to prepare this draft.
 
-Verifier Run 4, section R4.3: loading text appeared within 10 ms in 18 of 18 activations (target 200 ms); both sections were displayed within 3 s in 26 of 26 observations (slowest end-to-end sequence about 2.5 s). One Windows laptop on Wi-Fi in India, one window of about 5 minutes, from `http://localhost`. The Verifier states this is "consistent with the accepted target here; not proof that 90% of all users meet it". The user accepted the target on those numbers.
+| Command | Result | Evidence |
+|---|---|---|
+| `npm test` | Passed | 54 files, 1439 tests, 0 failed |
+| `npm run typecheck` | Passed | `tsc --noEmit`, exit 0, no output |
+| `npm run lint` | Passed | `eslint .`, exit 0, no output |
+| `npm run build:release` | Passed | exit 0; `scan:dist`: "no findings"; JS 285.15 kB (87.38 kB gzip by Vite; the scan counts 86,350 bytes gzipped against a 200,000 budget); 11 icons bundled |
+| `npm run test:browser` | Passed | 270 passed (54 tests x 5 engine projects), 0 failed, 0 skipped, 0 flaky, `retries: 0`, 5.6 min. Open-Meteo is intercepted. |
+| `npm run smoke:live` | **FAILED** (run twice) | Exit 1 both times, 3 of 3 tests failed. The geocoding request returned `{"kind":"network"}` after about 7.1 s while DNS on this machine was failing intermittently (`EAI_AGAIN` for `geocoding-api.open-meteo.com` in Node; `curl` exit 6 for some hosts at some times). The two weather tests never sent a request. This is judged an environment failure, not proven to be one. **There is no live-API evidence for the current adapter code.** |
 
-### Not verified (read this)
+What this does not show (from `verification.md`):
+- Behaviour against the real Open-Meteo API, including whether `cache: 'no-store'` is accepted without a CORS preflight on Firefox and WebKit.
+- Any real device or real Edge, Chrome or Safari. Playwright's Firefox and WebKit are not Safari.
+- Even on a working network, `smoke:live` (`test/live/openMeteo.live.ts`, unchanged) calls `getForecast(place, 3, false, ...)`, so it would not exercise "today plus two days", the day/night flag, the cache mode or the rate-limit path.
+- All 40 requirement IDs are marked "Passed (scope-limited)" in `verification.md`; none is fully verified because none has a real-provider, real-device or manual result. Assertions were read for 31 IDs, in part for 3, and 3 are judged from the previous run or titles alone.
+- Code coverage and performance were not measured.
 
-- **No** screen reader (NVDA, VoiceOver, TalkBack), **no** Firefox or Safari, **no** real phone or tablet, **no** real browser location prompt (browser tests use a test-granted permission), **no** human visual review at 320/768/1280/1920 px, **no** zoom 200/400%, **no** forced-colours check, **no** human check of how the icons look.
-- **CORS from a deployed https origin** is untested. `access-control-allow-origin: *` was seen only from `http://localhost` and by `curl`. Nothing is deployed.
-- Open-Meteo's **acceptance of the credit placement** and its stance on this use are not confirmed with them.
-- No coverage report exists (none is configured); "all tests pass" is not line or branch coverage.
-- `npm run dev`, `npm run dev:demo` and `npm install` from a clean checkout were not run by the Verifier.
-- The hands-on manual end-to-end check of TASK-037 was not done; the user accepted the Verifier's automated real-API runs instead.
-- Tasks only **partially verified** by the Verifier: TASK-010, 025, 035, 037, 039, 040, 041, 045. TASK-044 (code review): the plan lists it as In Progress with independent review not done. Code Reviewer findings (M1 to M3, L1 to L5) are referred to in `impl-plan.md`, but no review report file exists in the repository root, so this description cannot cite one.
-- The "hands-on" and "fresh reader" validations of the README were not done.
+Approvals and review found in the repository:
+- `requirements.md`: approved by the user 2026-10-30, open items deferred to the Architect (header). `architecture.md`: approved by the user 2026-10-30 with conditions (header). `design-review.md` Section 10 records approval with conditions per `verification.md`; I did not re-read it in full. `impl-plan.md` records plan approval 2026-10-30; `message-wording.md` line 5 records approval 2026-10-30, footer Option A.
+- Authorization: `impl-plan.md` still says no implementation is authorized (stale text, see below). The authorization was given in the working session, not in a file: the user directed the work in steps (the two review blockers; then the major review findings, in four batches; then the re-review findings: refresh race, search Retry, remaining approved wording). It covers only that work, not the rest of the plan (Phase 2 port migration and later tasks).
+- Code review: `conformance-review.md` is a static review (task T-01) of the earlier implementation. Two Code Reviewer passes over the current working tree were also run in the session: a first review (2 blockers, 11 majors) and a re-review after those fixes (2 new majors plus the incomplete wording). Their reports were returned in the session and are not saved as files. The fixes after the re-review (refresh race, search Retry, M-04/M-06/M-25..M-27, small minors) were verified by the tests in `verification.md` but have not had a further code review.
 
-## Known Limitations and Risks
+## Known limitations and not done
 
-- **Device-location favorites are disabled** and **TASK-024 (reverse geocoding) was not built**: Open-Meteo has no reverse-geocoding endpoint (user answer A4 = No). A device location shows as "Current location".
-- **Free API is non-commercial only.** The user's answers cover a student/demo use. Any commercial use needs a fresh check of Open-Meteo's terms. Free-tier limits quoted by the user: 10,000 calls/day, 5,000/hour, 600/minute.
-- **No cache and no debounce** (accepted risk, 2026-10-27). Search is submit-only; one search is 1 geocoding request and choosing a place is 2 weather requests; duplicate refreshes of the same place are coalesced. The user's rate-limit answer assumed caching and debouncing, which the app does not have.
-- **OQ-001 to OQ-014 are TBD** and run at the recommended defaults: web app, `localStorage`, evergreen browsers, WCAG 2.1 AA target, English only, Celsius default, no favorites cap, no stale-data flag, 10 s timeouts, today not counted in the forecast, no launch-time location prompt.
-- **Design Revision 2** was approved with conditions **without a re-review** by the Design Reviewer; a design defect could still surface.
-- **Same-origin storage**: all GitHub Pages project sites of one account share an origin, so another site using the keys `weather-app.favorites` or `weather-app.settings` would collide. No such site is known.
-- **The bundle scan is a pattern scan**, not proof that no secret or demo code is present (`docs/deployment.md`, "What the scan cannot catch").
-- **Repository name in the build**: the base `/claude-project/` must match the real repository name; a rename needs a rebuild.
-- **Provider dependency**: behavior depends on a third-party service that may change; the first request on a new connection took about 0.7 to 1.0 s longer in the Verifier's runs, which is the main risk to the 3 s target.
-- **Artifact inconsistencies:** `impl-plan.md` Section 10 was corrected on 2026-10-27 and now lists the approved tasks (TASK-024 and TASK-046 are not approved); older `verification.md` runs carry historical notes saying so. The newer dated approval notes were used. `impl-plan.md` Section 1 still contains a historical Planner note about older `design-review.md` and `architecture.md` wording; those two files now carry historical notes.
+Not complete against `impl-plan.md`:
+- **Phase 2/3 port migration (T-20..T-32) is unfinished.** `src/composition.ts` and the core services still use `LegacyGeocodingProvider`, `LegacyWeatherProvider` and `LegacyLocationService`. No class implements the approved `WeatherProvider`, `GeocodingProvider`, `LocationService` or `FavoritesApi` ports (`verification.md` O-3). The weather adapter still makes two requests (current and daily) instead of the approved single `get`. `FavoritesService` still works with the legacy `Location` shape and maps it at the storage boundary. `src/core/favorites/api.ts` and `test/contract/` are not wired to a real implementation (I did not read `test/contract/`).
+- **Manual checks T-70..T-75 are all Not run:** real iOS/Android/Edge/Safari smoke, screen reader, keyboard walk-through, 200 % zoom and contrast, real Permissions API behaviour, live timing, and a real-browser CORS check that records the actual rate-limit response. The deployed-origin CSP check needs a host that is not decided (HOST).
+- **No live-API evidence** (`smoke:live` failed; see Verification). `test/live/openMeteo.live.ts` still needs the user's decision on whether to switch it to include today.
+- **Browser coverage is partial (T-61..T-64).** No browser test for Refresh, the unit toggle, a firing 10 s watchdog, the cache mode, section Retry, favorite remove or duplicate, or the error boundary. Axe does not run with the new Retry button showing. Two Retry unit-test titles promise more than they assert (over-long input; focus moving into the search form), and the `timeout` search error has no Retry test.
+- **Stale document text:** `impl-plan.md` still says "NO IMPLEMENTATION HAS BEEN DONE" and lists blocked/unblocked statuses and a test count of 51 (actual 54 files); `design-review.md` header, `architecture.md` lines 13 and 166, `requirements.md` header row 9 and `message-wording.md` line 8 still say "not approved" while other sections record approval. `README.md` also still calls TASK-046 blocked and says "not yet reviewed" for earlier work. T-10..T-15 and T-20..T-27 are not marked Done.
+- **Minor cleanup items:** the legacy test labels (`TASK-025`, `AC-00n-m`, `EC-0nn`, `FR-007`) do not match current IDs; only some tests carry `REQ-` IDs; 15 of 45 catalogue messages are not cited by any test, and only 12 were compared character by character with `message-wording.md`; `test-triage.md` lists 52 test files, the repository has 54; the device location label is always "Current location" (no reverse geocoding); the jsdom `getContext()` "Not implemented" warning appears during `npm test` (no test fails).
+- **CSP limits:** delivered as a meta tag, so `frame-ancestors`, `report-uri` and `sandbox` are ignored. A real response header would need a host that allows it.
+- **Nothing is deployed.** The host is undecided; the expected GitHub Pages URL in the docs is unverified.
+- **Scope of the working tree:** 19 untracked paths include `archive/` (not used as input for this draft) and the SDLC documents listed above. Whether each should be part of the pull request is for the user to decide.
 
-## Privacy Note
+## Assumptions needing reviewer or user confirmation
 
-The app has no accounts, analytics or background requests, and keeps only favorites and the unit choice in the browser's `localStorage`. The device location is not saved.
+These are recorded in `verification.md`, `architecture.md`, `provider-verification.md` or the source comments. None is a user-approved value unless the document says so.
 
-What the weather service (Open-Meteo) receives, per the in-app text next to "Use my location": "The weather service receives the text you search for, the location used for the weather (rounded to two decimal places) and your IP address, and may log requests. This app does not save your device location."
+1. **10 s location watchdog** (`locationTimeoutMs`) is an architecture proposal; requirements item Q10 is open. It is proved with fake timers only.
+2. **Old-shape favorites are discarded**, not migrated, with the M-16 notice. This loses data for existing users and needs an explicit decision.
+3. **CSP as a `<meta>` tag**, because the target static host (U5) usually cannot set headers (`docs/deployment.md`, T-51 leaves this to the user).
+4. **Exact-match search qualifiers** (case-insensitive, whole value; the comma split is at the first comma). Diacritic and spelling tolerance has no approved rule (A-Q5, Q5 sub-question 11.4).
+5. **HTTP 429 means "rate limited".** The provider's actual limit response is NOT CONFIRMED (`provider-verification.md` item 2; check T-75).
+6. **Forecast includes today** (`forecastIncludesToday: true`). Q13 (includes-today and date format) is open; the format "Thu, Mar 5" is the implemented choice. The provider docs do not explicitly say whether `forecast_days` counts today (`provider-verification.md` item 4).
+7. **Icon set and day/night variants** (Lucide, 11 icons including drizzle and night variants): Q16 is open and these are not user-approved.
+8. **Device location is not favoritable** and is labelled "Current location" (Q12/Q23 open).
+9. **`cache: 'no-store'`** on all provider requests: its CORS and preflight behaviour with the real provider on Firefox and WebKit is unverified.
+10. **Open items deferred to the Architect and not user-approved values:** Q2 (browsers and breakpoints), Q26 (accessibility standard), Q29 (performance target).
+11. **Bundle budget** "200 KB" is read as 200,000 bytes (the stricter reading).
+12. **Playwright engines** (Chromium, Firefox, WebKit, emulated phones) stand in for the real browsers; real-browser checks are manual and not done.
 
-- Requests are made from the visitor's browser straight to `geocoding-api.open-meteo.com` and `api.open-meteo.com`. There is no proxy.
-- The page address is not sent as a Referer (`referrerPolicy: 'no-referrer'`; checked in real Edge and Chrome with recorded responses); no cookies or credentials are sent (`credentials: 'omit'`).
-- Per `docs/deployment.md`, Open-Meteo's terms (read 2026-10-27 by the Implementer) say it may collect IP addresses and keeps web-server logs that may contain coordinates, deleted after 90 days. The page deliberately does not repeat the 90-day figure. The Verifier did not read Open-Meteo's privacy terms (`verification.md` R4.4); recheck the wording against the provider's current terms before publishing.
-- In demo mode nothing is sent to a weather service and the device location is not used.
+## Reviewer checklist
 
-## Licence and Attribution Compliance Notes
+- [ ] Confirm the scope: this branch is a partial rework and is not complete against `impl-plan.md`; decide whether it should be merged in this state.
+- [ ] Confirm that discarding old-shape saved favorites (no migration) is acceptable.
+- [ ] Review the assumptions list above and confirm or change each.
+- [ ] Check that the removed demo layer leaves no references (`npm run build:release` reports "no findings"; `grep` for `demo` in `src`).
+- [ ] Check the privacy footer text against `message-wording.md` (M-24, option A).
+- [ ] Check `src/adapters/openMeteo/http.ts`: no custom request headers, `cache: 'no-store'`, 429 mapping.
+- [ ] Check `src/core/favorites/favoritesService.ts`: validation, discard path and that device locations are never written.
+- [ ] Check `scripts/csp.mjs` and `vite.config.ts`: policy contents and that it applies to `vite build` only.
+- [ ] Decide which untracked files belong in the change (`archive/`, SDLC documents, `test/contract/`).
+- [ ] Decide whether `test/live/openMeteo.live.ts` should be updated to include today.
 
-- **Open-Meteo data (CC BY 4.0):** credit "Weather data by Open-Meteo.com", linked to https://open-meteo.com/, appears in the footer and in the Current weather and Forecast panels when real data is shown; `THIRD_PARTY_NOTICES.txt` gives the licence link and states the app's changes (rounding, optional Fahrenheit). Presence, wording, links and gating are test-verified. **Open-Meteo has not confirmed that this placement satisfies "next to" the data.**
-- **GeoNames (CC BY 4.0):** "Location data based on GeoNames" is credited in the footer and the notices file.
-- **Lucide (ISC) and Feather (MIT):** `lucide-react` 1.61.0 (confirmed in `node_modules`); the ISC text and the Feather MIT notice ship in `THIRD_PARTY_NOTICES.txt`. A test ties the notice to the installed package, and `scan:dist` fails if it is missing.
-- **React, React DOM, Scheduler (MIT):** 19.3.1, 19.3.1 and 0.28.0 (confirmed); notices ship in the same file.
-- The notices file must be uploaded with the rest of `dist/`; the footer link is relative.
-- **No legal review** was done. Licences of development-only dependencies were not reviewed.
+## Test plan
 
-## Dependencies
+Automated (results above, from `verification.md`):
+- [x] `npm test` (54 files, 1439 tests)
+- [x] `npm run typecheck`
+- [x] `npm run lint`
+- [x] `npm run build:release` (`scan:dist`: no findings)
+- [x] `npm run test:browser` (270 tests, 5 engines)
+- [ ] `npm run smoke:live` on a network with working DNS (failed twice on 2026-11-02; run once, do not loop)
 
-- Runtime: `lucide-react` ^1.61.0, `react` ^19.3.1, `react-dom` ^19.3.1 (plus `scheduler` 0.28.0 via `react-dom`).
-- Dev: `@playwright/test`, `vite`, `vitest`, `typescript`, `eslint` and plugins, `jsdom`, Testing Library, `axe-core`, `@vitejs/plugin-react` (full list in `package.json`).
-- External service: Open-Meteo Geocoding and Forecast APIs (free, keyless, non-commercial use).
-- Tooling: Node.js and npm (developed with Node v24, npm 11; other versions untested). `npm run test:browser` needs Microsoft Edge and Google Chrome installed (nothing is downloaded).
-- `npm audit`: 0 vulnerabilities in Run 4, single run; not repeated for this description.
-
-## Manual Test Checklist (for the user)
-
-Run `npm run dev` (live Open-Meteo) or `npm run build:release` then `npx vite preview`, and open the printed URL. Use `npm run dev:demo` to try without a network.
-
-- [ ] Search a real city (for example Berlin): the chooser or result appears, with name and country, current temperature, humidity and condition, and 3 forecast days.
-- [ ] Search for a nonsense name: "city not found" message. Submit empty input: a prompt, and no request in the browser's network tab. Paste 101+ characters: the "too long" message.
-- [ ] Press Refresh: both sections update and the update time changes. Press it repeatedly: no flood of requests.
-- [ ] Toggle Celsius/Fahrenheit; reload the page: the choice is kept.
-- [ ] Add a favorite, add it again (no duplicate), select it, remove it, reload (persistence).
-- [ ] Press "Use my location": the browser asks first. Try Allow, Deny and dismiss. Allowed: "Current location" weather appears and there is no "Add to favorites". Denied: a message and city search still works.
-- [ ] Switch off the network and search: a clear error, no crash. Reconnect and refresh.
-- [ ] Look at the icons: do rain, snow, thunderstorm, fog, cloudy and clear look right, and is the text always beside them?
-- [ ] Check the footer and in-panel credits and the "Third-party notices" link.
-- [ ] Resize from phone width (320 px) to 1920 px; on wide screens confirm Tab order follows the visual order.
-- [ ] Keyboard only: reach and operate every control; focus is always visible.
-- [ ] Try a screen reader (NVDA, VoiceOver or TalkBack), Firefox, Safari and a real phone.
-- [ ] Browser zoom 200% and 400%; high-contrast / forced-colours mode.
-- [ ] Look at the browser console: no errors.
-- [ ] Open `dist/THIRD_PARTY_NOTICES.txt` from a built site.
-- [ ] After any future deployment only: open the real https address, search, and confirm in the network tab that CORS works from that origin.
-
-## NOT YET DONE
-
-- **Not merged, tagged, deployed or published.** The branch is pushed (`main` is the setup-only commit `d906824`). No GitHub workflow and no GitHub Pages enabled. The expected URL `https://jayasri1515.github.io/claude-project/` is unverified.
-- **TASK-046 (release readiness) is not approved and is blocked.** This pull request does not claim readiness.
-- **Hosting decision and publish authorization**: GitHub Pages was named as the intended host (user answer C1), but publishing needs the user's separate explicit authorization.
-- **CORS check from the deployed https origin.**
-- **Confirmation from Open-Meteo** that the credit placement is acceptable; a fresh terms check for any commercial use.
-- **Re-verification of the post-Run-4 change** (icon-mapping tests; the 1209 count is Implementer-reported after the final icon test pin; Verifier Run 4 verified 1199).
-- **Manual and human checks** listed under "Not verified" above, including the TASK-037 hands-on check and the TASK-039/040 manual lists.
-- **Independent code review (TASK-044) and fresh-reader documentation check (TASK-045)** are not recorded as complete.
-- **TASK-024** (reverse geocoding) not built or approved.
-- **OQ-001 to OQ-014** unanswered (defaults in use); the Design Reviewer has not re-reviewed Revision 2.
-- **Privacy wording** to be rechecked against Open-Meteo's current terms before publishing.
-- **Version and release date**: none chosen (`0.0.0`).
-
-## Reviewer Checklist
-
-- [ ] The scope note (one feature branch on a setup-only `main`) is acceptable and the scope of this initial version is right.
-- [ ] The Run 4 numbers above match `verification.md`; the 1209 figure is Implementer-reported after the final icon test pin; Verifier Run 4 verified 1199.
-- [ ] Privacy text, attribution placement and licence notes are accepted or sent to Open-Meteo for confirmation.
-- [ ] The Known Limitations (no reverse geocoding, no cache or debounce, TBD requirements) are accepted.
-- [ ] The user has completed the manual checklist, or consciously accepted the gaps.
-- [ ] Nothing is published until the user explicitly authorizes it.
-
-
-## Manual check by the user (2026-10-27)
-
-The user ran `npm run dev` in live mode and reported "all looked right" for: search and select, current weather and forecast, icons, Open-Meteo credit, unit toggle, favorites and persistence, keyboard navigation, "Use my location", and layout at about 320 px and 1280 px. Browser, device and exact steps were not recorded. Not covered: screen readers, Firefox/Safari, a real phone, CORS from a deployed https origin, and Open-Meteo's acceptance of the credit placement.
-
----
+Manual, not run:
+- [ ] T-70: real-device and real-browser smoke (iOS Safari, Android Chrome, desktop Edge and Safari) on an HTTPS test host
+- [ ] T-71: screen-reader pass
+- [ ] T-72: keyboard walk-through, 200 % zoom, contrast check
+- [ ] T-73: Permissions API behaviour on real browsers (unanswered prompt, change event)
+- [ ] T-74: live provider smoke with timing observations
+- [ ] T-75: real-browser CORS check under the CSP, recording the real rate-limit response (also settles `no-store` preflight on Firefox and WebKit)
+- [ ] Deployed-origin HTTPS and CSP check (needs HOST)
+- [ ] Re-run `verification.md` after any further change in `src/`, `test/`, `e2e/`, `scripts/` or config
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

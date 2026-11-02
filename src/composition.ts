@@ -4,17 +4,9 @@
  * is injectable so tests can substitute fakes.
  *
  * Which data source is used (the mode):
- * - "live": both a GeocodingProvider and a WeatherProvider were injected.
+ * - "live": both a LegacyGeocodingProvider and a LegacyWeatherProvider were injected.
  *   `composeLive` (TASK-037) is what a normal build uses: it injects the real
  *   Open-Meteo adapters (src/adapters/openMeteo). Tests inject fakes instead.
- * - "demo": built by composeDemo (src/dev/demoComposition.ts), which main.tsx
- *   loads only when demo is explicitly requested (Vite mode "demo" or
- *   VITE_USE_DEMO=true; the single place that condition is written is main.tsx, because
- *   Vite can only drop the demo code from release builds if the reads are literal there)
- *   and only in a demo build. The demo providers return invented data, so they are
- *   never the silent default and are NOT part of release builds. In demo mode
- *   saved data goes under a separate key prefix, the device position is not
- *   read, and forecast dates follow the Clock.
  * - "unconfigured": `compose()` was called with no providers (only tests and
  *   misuse do this: `composeLive` always supplies them). The UI then shows a
  *   "not set up" notice and the placeholder ports below are never used to
@@ -33,7 +25,7 @@ import { serviceUnavailable } from './core/errors';
 import { FavoritesService } from './core/favorites/favoritesService';
 import { LocationFlow } from './core/locationFlow';
 import { message } from './core/messages';
-import type { Clock, GeocodingProvider, KeyValueStore, LocationService, WeatherProvider } from './core/ports';
+import type { Clock, LegacyGeocodingProvider, KeyValueStore, LegacyLocationService, LegacyWeatherProvider } from './core/ports';
 import { err } from './core/result';
 import type { Result } from './core/result';
 import { SearchService } from './core/search';
@@ -41,21 +33,15 @@ import { SettingsService } from './core/settings';
 import { ViewStateStore } from './core/store';
 import { WeatherService } from './core/weatherService';
 
-export type AppMode = 'live' | 'demo' | 'unconfigured';
+export type AppMode = 'live' | 'unconfigured';
 
 export interface CompositionOptions {
   readonly config?: Config;
   readonly keyValueStore?: KeyValueStore;
-  readonly locationService?: LocationService;
-  readonly geocoding?: GeocodingProvider;
-  readonly weather?: WeatherProvider;
+  readonly locationService?: LegacyLocationService;
+  readonly geocoding?: LegacyGeocodingProvider;
+  readonly weather?: LegacyWeatherProvider;
   readonly clock?: Clock;
-  /**
-   * Marks the injected ports as the invented-data demo ports. Set only by composeDemo
-   * (src/dev/demoComposition.ts); this module never imports the demo code, so release
-   * builds can leave it out. Has no effect unless both providers are injected.
-   */
-  readonly demo?: boolean;
 }
 
 export interface Composition {
@@ -63,8 +49,6 @@ export interface Composition {
   readonly controller: AppController;
   readonly config: Config;
   readonly mode: AppMode;
-  /** True in demo mode (the UI then shows a demo notice). */
-  readonly demo: boolean;
   /** True when no data source is configured (the UI then shows a "not set up" notice). */
   readonly unconfigured: boolean;
 }
@@ -76,13 +60,13 @@ const systemClock: Clock = { now: () => new Date() };
  * does not offer search or weather in that mode, and a call (which would be a
  * bug) fails with the normal "service unavailable" error.
  */
-class UnconfiguredGeocoding implements GeocodingProvider {
+class UnconfiguredGeocoding implements LegacyGeocodingProvider {
   search(): Promise<Result<never, AppError>> {
     return Promise.resolve(err(serviceUnavailable()));
   }
 }
 
-class UnconfiguredWeather implements WeatherProvider {
+class UnconfiguredWeather implements LegacyWeatherProvider {
   getCurrent(): Promise<Result<never, AppError>> {
     return Promise.resolve(err(serviceUnavailable()));
   }
@@ -96,12 +80,12 @@ export function compose(options: CompositionOptions = {}): Composition {
   const config = options.config ?? createConfig();
   const clock = options.clock ?? systemClock;
   const injected = options.geocoding !== undefined && options.weather !== undefined;
-  const mode: AppMode = injected ? (options.demo === true ? 'demo' : 'live') : 'unconfigured';
+  const mode: AppMode = injected ? 'live' : 'unconfigured';
 
   const keyValueStore = options.keyValueStore ?? new LocalStorageStore();
-  const locationService: LocationService = options.locationService ?? new BrowserLocationService();
-  const geocoding: GeocodingProvider = options.geocoding ?? new UnconfiguredGeocoding();
-  const weatherProvider: WeatherProvider = options.weather ?? new UnconfiguredWeather();
+  const locationService: LegacyLocationService = options.locationService ?? new BrowserLocationService();
+  const geocoding: LegacyGeocodingProvider = options.geocoding ?? new UnconfiguredGeocoding();
+  const weatherProvider: LegacyWeatherProvider = options.weather ?? new UnconfiguredWeather();
 
   const store = new ViewStateStore();
   const controller = new AppController({
@@ -112,7 +96,7 @@ export function compose(options: CompositionOptions = {}): Composition {
     settings: new SettingsService({ store: keyValueStore, config }),
     store,
   });
-  return { store, controller, config, mode, demo: mode === 'demo', unconfigured: mode === 'unconfigured' };
+  return { store, controller, config, mode, unconfigured: mode === 'unconfigured' };
 }
 
 export interface LiveCompositionOptions extends CompositionOptions {
@@ -153,10 +137,11 @@ export function composeLive(options: LiveCompositionOptions = {}): Composition {
   const config = withLiveAttribution(options.config ?? createConfig());
   const { fetch, ...rest } = options;
   const adapterOptions = { timeoutMs: config.weatherTimeoutMs, ...(fetch !== undefined ? { fetch } : {}) };
+  const weatherOptions = { ...adapterOptions, coordinateDecimals: config.coordinateDecimals };
   return compose({
     ...rest,
     config,
     geocoding: options.geocoding ?? new OpenMeteoGeocodingProvider(adapterOptions),
-    weather: options.weather ?? new OpenMeteoWeatherProvider(adapterOptions),
+    weather: options.weather ?? new OpenMeteoWeatherProvider(weatherOptions),
   });
 }

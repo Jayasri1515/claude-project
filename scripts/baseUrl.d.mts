@@ -1,2 +1,2 @@
-export const PROJECT_BASE: string;
-export function resolveBase(input: { command: string; mode: string; env: Record<string, string | undefined> }): string;
+export const DEFAULT_BASE: string;
+export function resolveBase(input: { env: Record<string, string | undefined> }): string;

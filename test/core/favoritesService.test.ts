@@ -92,12 +92,26 @@ describe('FavoritesService persistence', () => {
     expect(reloaded.storageUnavailable).toBe(false);
   });
 
-  it('writes a versioned record', () => {
+  it('writes the versioned record { v, items } with a centroid (architecture 3.4, DR-15)', () => {
     const { store, service } = make();
-    service.add(place(1));
+    service.add(place(1, { admin1: 'Reg', country: 'Land', timezone: 'Europe/Oslo', latitude: 10.5, longitude: -20.25 }));
     const raw = JSON.parse(store.data.get(FAVORITES_STORAGE_KEY) ?? 'null');
-    expect(raw.version).toBe(1);
-    expect(raw.favorites).toHaveLength(1);
+    expect(raw).toEqual({
+      v: 1,
+      items: [
+        {
+          key: 'test:1',
+          providerId: '1',
+          name: 'Place 1',
+          admin1: 'Reg',
+          country: 'Land',
+          centroid: { lat: 10.5, lon: -20.25 },
+          timeZoneHint: 'Europe/Oslo',
+        },
+      ],
+    });
+    expect(raw).not.toHaveProperty('version');
+    expect(raw).not.toHaveProperty('favorites');
   });
 
   it('removal is persisted', () => {
@@ -107,39 +121,68 @@ describe('FavoritesService persistence', () => {
     expect(new FavoritesService({ store, config: createConfig() }).list()).toEqual([]);
   });
 
+  const item = (n: number, extra: Record<string, unknown> = {}) => ({
+    key: `test:${n}`,
+    name: `Place ${n}`,
+    centroid: { lat: n, lon: n * 2 },
+    ...extra,
+  });
+
   it.each([
     ['corrupt JSON', '{not json'],
     ['non-object JSON', '42'],
     ['null', 'null'],
-    ['wrong version', JSON.stringify({ version: 2, favorites: [place(1)] })],
-    ['missing version', JSON.stringify({ favorites: [place(1)] })],
-    ['favorites not an array', JSON.stringify({ version: 1, favorites: 'x' })],
-  ])('ignores a %s record and starts empty without crashing', (_name, raw) => {
+    ['wrong version', JSON.stringify({ v: 2, items: [item(1)] })],
+    ['missing version', JSON.stringify({ items: [item(1)] })],
+    ['items not an array', JSON.stringify({ v: 1, items: 'x' })],
+    // The earlier { version, favorites } shape is not migrated: it is treated as unreadable (documented choice).
+    ['old { version, favorites } shape', JSON.stringify({ version: 1, favorites: [place(1)] })],
+    ['an item with an out-of-range centroid', JSON.stringify({ v: 1, items: [item(1), item(2, { centroid: { lat: 999, lon: 0 } })] })],
+    ['an item without a name', JSON.stringify({ v: 1, items: [item(1, { name: '' })] })],
+    ['an item with a wrongly typed field', JSON.stringify({ v: 1, items: [item(1, { country: 7 })] })],
+    ['a non-object item', JSON.stringify({ v: 1, items: [item(1), 'junk'] })],
+    ['duplicate keys', JSON.stringify({ v: 1, items: [item(1), item(1)] })],
+  ])('discards a %s record, starts empty, raises the corruption flag and does not crash (REQ-WF6-06)', (_name, raw) => {
     const store = new InMemoryKeyValueStore({ [FAVORITES_STORAGE_KEY]: raw });
     const { service } = make(store);
     expect(service.list()).toEqual([]);
+    expect(service.dataDiscarded).toBe(true);
     expect(service.storageUnavailable).toBe(false);
     expect(service.add(place(1))).toBe('added'); // still usable, overwrites the bad record
+    expect(new FavoritesService({ store, config: createConfig() }).list().map((f) => f.key)).toEqual(['test:1']);
+    expect(new FavoritesService({ store, config: createConfig() }).dataDiscarded).toBe(false);
   });
 
-  it('skips invalid and duplicate entries but keeps valid ones', () => {
-    const good = place(1);
-    const record = {
-      version: 1,
-      favorites: [
-        good,
-        good,
-        { ...place(2), latitude: 999 },
-        { ...place(3), name: '' },
-        { ...place(4), source: 'device' },
-        { ...place(5), country: 7 },
-        'junk',
-        null,
-        place(6),
-      ],
-    };
-    const store = new InMemoryKeyValueStore({ [FAVORITES_STORAGE_KEY]: JSON.stringify(record) });
-    expect(make(store).service.list().map((f) => f.key)).toEqual(['test:1', 'test:6']);
+  it('valid data and an empty store do not raise the corruption flag', () => {
+    expect(make().service.dataDiscarded).toBe(false);
+    const { store, service } = make();
+    service.add(place(1));
+    expect(new FavoritesService({ store, config: createConfig() }).dataDiscarded).toBe(false);
+  });
+
+  it('reads a stored item back into the same place (round trip, optional fields kept)', () => {
+    const store = new InMemoryKeyValueStore({
+      [FAVORITES_STORAGE_KEY]: JSON.stringify({
+        v: 1,
+        items: [item(1, { providerId: '77', admin1: 'R', country: 'C', timeZoneHint: 'Europe/Oslo' }), item(2)],
+      }),
+    });
+    const { service } = make(store);
+    expect(service.dataDiscarded).toBe(false);
+    expect(service.list()).toEqual([
+      {
+        key: 'test:1',
+        name: 'Place 1',
+        latitude: 1,
+        longitude: 2,
+        source: 'search',
+        admin1: 'R',
+        country: 'C',
+        timezone: 'Europe/Oslo',
+        placeId: '77',
+      },
+      { key: 'test:2', name: 'Place 2', latitude: 2, longitude: 4, source: 'search' },
+    ]);
   });
 
   it('a read failure keeps working in memory and raises the notice', () => {
@@ -198,7 +241,7 @@ describe('FavoritesService device-location rule (F-004)', () => {
     const resolved = place(9, { latitude: 10.5, longitude: -20.25 });
     expect(service.add(resolved)).toBe('added');
     const stored = store.data.get(FAVORITES_STORAGE_KEY) ?? '';
-    expect(JSON.parse(stored).favorites).toHaveLength(1);
+    expect(JSON.parse(stored).items).toHaveLength(1);
     expect(stored).toContain('10.5');
     expect(stored).not.toContain(String(DEVICE_LAT));
     expect(stored).not.toContain(String(DEVICE_LON));

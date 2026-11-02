@@ -1,8 +1,6 @@
 /**
- * Config (C12, architecture 4.12). A single typed object for values the
- * requirements leave TBD. The defaults below are the architecture's recommended
- * defaults (not requirements); `breakpoints` and `maxInputLength` are the
- * Planner's unconfirmed proposals (impl-plan Section 3, TASK-002).
+ * Config (C10, architecture 4.10, impl-plan T-11). A single typed, validated object for the tunable values. The
+ * defaults are the approved baseline (architecture Section 7); provider-derived values follow provider-verification.md.
  * No timeout or limit may be hard-coded elsewhere; read it from Config.
  */
 import type { TemperatureUnit } from './domain';
@@ -14,14 +12,26 @@ export interface Breakpoints {
   readonly extraWide: number;
 }
 
+/**
+ * Largest `count` the geocoding provider documents (provider-verification.md item 6). The search result limit may not
+ * exceed it.
+ */
+export const MAX_SEARCH_RESULT_LIMIT = 100;
+
+/**
+ * Largest `forecast_days` the weather provider documents (provider-verification.md item 4). `forecastDays` may not
+ * exceed it.
+ */
+export const MAX_PROVIDER_FORECAST_DAYS = 16;
+
 export interface Config {
-  /** Weather request timeout in ms (OQ-008). */
+  /** Weather and geocoding request timeout in ms (architecture 7 item 2). */
   readonly weatherTimeoutMs: number;
-  /** Location request timeout in ms (OQ-008). */
+  /** App-owned location watchdog in ms (architecture 3.3). */
   readonly locationTimeoutMs: number;
-  /** Forecast days requested (OQ-004). */
+  /** Forecast days requested (today plus the next two). */
   readonly forecastDays: number;
-  /** Whether today counts as forecast day 1 (OQ-004). */
+  /** Whether today counts as forecast day 1: true, the first provider day is today (provider-verification.md item 4). */
   readonly forecastIncludesToday: boolean;
   /** Favorites cap (OQ-006). Undefined means unbounded. */
   readonly maxFavorites?: number;
@@ -29,16 +39,26 @@ export interface Config {
   readonly defaultTemperatureUnit: TemperatureUnit;
   /** Age in ms after which data is flagged stale (OQ-010). Undefined means disabled. */
   readonly staleAfterMs?: number;
-  /** Max search candidates offered (OQ-007). */
+  /** Max search candidates requested and offered; at most MAX_SEARCH_RESULT_LIMIT (the provider's documented maximum). */
   readonly searchResultLimit: number;
-  /** Responsive layout widths (OQ-011). Proposed, unconfirmed. */
+  /**
+   * Candidates requested from the geocoder when the typed text has a "name, qualifier" form (A-Q5), so that the
+   * qualifier filter has more than the shown few to choose from; the shown list is still cut to `searchResultLimit`.
+   * At most MAX_SEARCH_RESULT_LIMIT; a value below `searchResultLimit` has no effect (the larger of the two is asked for).
+   */
+  readonly qualifiedSearchFetchLimit: number;
+  /** Responsive layout widths. */
   readonly breakpoints: Breakpoints;
-  /** Search input length cap in characters (OQ-007). Proposed, unconfirmed. */
+  /** Narrowest supported viewport width in CSS px; the layout must work down to it. */
+  readonly minViewportWidthPx: number;
+  /** Search input length cap in characters. */
   readonly maxInputLength: number;
+  /** Decimals kept when device coordinates are rounded for a weather request (U8). */
+  readonly coordinateDecimals: number;
+  /** Initial JavaScript budget, gzipped, in bytes ("200 KB" is read as 200,000 bytes, the stricter reading). */
+  readonly bundleBudgetGzipBytes: number;
   /** Data-source attribution text. Empty until provider terms are verified (TASK-001). */
-  readonly attributionText: string;
-  /** Latest time (ms) the loading state must appear after submit/refresh (OQ-008). */
-  readonly loadingIndicatorMaxDelayMs: number;
+  attributionText: string;
 }
 
 export type ConfigOverrides = Partial<Omit<Config, 'breakpoints'>> & {
@@ -49,15 +69,18 @@ export const DEFAULT_CONFIG: Config = Object.freeze({
   weatherTimeoutMs: 10_000,
   locationTimeoutMs: 10_000,
   forecastDays: 3,
-  forecastIncludesToday: false,
+  forecastIncludesToday: true,
   maxFavorites: undefined,
   defaultTemperatureUnit: 'C',
   staleAfterMs: undefined,
   searchResultLimit: 5,
+  qualifiedSearchFetchLimit: 20,
   breakpoints: Object.freeze({ wide: 768, extraWide: 1024 }),
+  minViewportWidthPx: 320,
   maxInputLength: 100,
+  coordinateDecimals: 2,
+  bundleBudgetGzipBytes: 200_000,
   attributionText: '',
-  loadingIndicatorMaxDelayMs: 200,
 });
 
 /** Copy of `source` without keys whose value is undefined. Keeps the key types. */
@@ -83,6 +106,10 @@ function requireNonNegativeInteger(name: string, value: number): void {
   }
 }
 
+function requireAtMost(name: string, value: number, max: number): void {
+  if (value > max) throw new Error(`Invalid config: ${name} must be at most ${max} (received ${String(value)}).`);
+}
+
 /**
  * Reject values that would break timers or limits (NaN, Infinity, negative,
  * zero, fractional). Config is built once at startup, so a bad value is a
@@ -92,13 +119,27 @@ function validateConfig(config: Config): void {
   requirePositiveInteger('weatherTimeoutMs', config.weatherTimeoutMs);
   requirePositiveInteger('locationTimeoutMs', config.locationTimeoutMs);
   requirePositiveInteger('forecastDays', config.forecastDays);
+  requireAtMost('forecastDays', config.forecastDays, MAX_PROVIDER_FORECAST_DAYS);
   requirePositiveInteger('searchResultLimit', config.searchResultLimit);
+  requireAtMost('searchResultLimit', config.searchResultLimit, MAX_SEARCH_RESULT_LIMIT);
+  requirePositiveInteger('qualifiedSearchFetchLimit', config.qualifiedSearchFetchLimit);
+  requireAtMost('qualifiedSearchFetchLimit', config.qualifiedSearchFetchLimit, MAX_SEARCH_RESULT_LIMIT);
   requirePositiveInteger('maxInputLength', config.maxInputLength);
+  requirePositiveInteger('minViewportWidthPx', config.minViewportWidthPx);
+  requireNonNegativeInteger('coordinateDecimals', config.coordinateDecimals);
+  requireAtMost('coordinateDecimals', config.coordinateDecimals, 6);
+  requirePositiveInteger('bundleBudgetGzipBytes', config.bundleBudgetGzipBytes);
+  requirePositiveInteger('breakpoints.wide', config.breakpoints.wide);
+  requirePositiveInteger('breakpoints.extraWide', config.breakpoints.extraWide);
+  if (config.breakpoints.wide >= config.breakpoints.extraWide) {
+    throw new Error('Invalid config: breakpoints.wide must be smaller than breakpoints.extraWide.');
+  }
+  if (config.minViewportWidthPx >= config.breakpoints.wide) {
+    throw new Error('Invalid config: minViewportWidthPx must be smaller than breakpoints.wide.');
+  }
   // Optional limits: undefined means unbounded / disabled, anything else must be sane.
   if (config.maxFavorites !== undefined) requirePositiveInteger('maxFavorites', config.maxFavorites);
   if (config.staleAfterMs !== undefined) requirePositiveInteger('staleAfterMs', config.staleAfterMs);
-  // A delay of 0 (show the loading state immediately) is meaningful, so allow it.
-  requireNonNegativeInteger('loadingIndicatorMaxDelayMs', config.loadingIndicatorMaxDelayMs);
 }
 
 /**

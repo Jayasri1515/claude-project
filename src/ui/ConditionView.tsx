@@ -1,5 +1,6 @@
 import type { ConditionCode } from '../core/domain';
 import { describeCondition } from '../core/conditions';
+import type { ConditionContext } from '../core/conditions';
 import { message } from '../core/messages';
 import { WeatherIcon } from './WeatherIcon';
 
@@ -7,7 +8,15 @@ import { WeatherIcon } from './WeatherIcon';
  * Icon plus text, always together (FR-041): the text carries the meaning, so the icon is decorative.
  * A missing condition reads "Unavailable" next to the neutral icon.
  */
-export function ConditionView({ condition, text }: { condition: ConditionCode | undefined; text: string | undefined }) {
+export function ConditionView({
+  condition,
+  text,
+  surface = 'current',
+  isDay,
+}: {
+  condition: ConditionCode | undefined;
+  text: string | undefined;
+} & ConditionContext) {
   const hasText = text !== undefined && text.trim() !== '';
   if (condition === undefined && !hasText) {
     return (
@@ -17,10 +26,10 @@ export function ConditionView({ condition, text }: { condition: ConditionCode | 
       </span>
     );
   }
-  const shown = describeCondition(condition, text);
+  const shown = describeCondition(condition, text, { surface, isDay });
   return (
     <span className="condition">
-      <WeatherIcon condition={shown.condition} />
+      <WeatherIcon condition={shown.condition} night={shown.night} />
       <span>{shown.label}</span>
     </span>
   );

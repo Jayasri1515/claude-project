@@ -22,6 +22,7 @@ export class ScriptedMethod<A extends unknown[], R> {
   private responder: Responder<A, R>;
   private failure: { reason: unknown } | undefined;
   private holding = false;
+  private latencyMs = 0;
   private readonly all: Array<RecordedCall<A, R>> = [];
 
   /**
@@ -60,6 +61,11 @@ export class ScriptedMethod<A extends unknown[], R> {
     this.failure = { reason };
   }
 
+  /** Delay every un-held answer (success or failure) by `ms` of timer time. 0 (the default) answers immediately. */
+  setLatency(ms: number): void {
+    this.latencyMs = ms;
+  }
+
   /** Make subsequent calls stay pending until resolved by the test. */
   hold(): void {
     this.holding = true;
@@ -80,6 +86,7 @@ export class ScriptedMethod<A extends unknown[], R> {
   reset(): void {
     this.all.length = 0;
     this.holding = false;
+    this.latencyMs = 0;
     this.failure = undefined;
   }
 
@@ -123,12 +130,21 @@ export class ScriptedMethod<A extends unknown[], R> {
     }
 
     if (this.holding) return promise;
-    if (this.failure !== undefined) {
-      call.reject(this.failure.reason);
+    const failure = this.failure;
+    const response = this.responder;
+    const answer = (): void => {
+      if (failure !== undefined) {
+        call.reject(failure.reason);
+        return;
+      }
+      call.resolve(typeof response === 'function' ? (response as (...a: A) => R)(...args) : response);
+    };
+    if (this.latencyMs > 0) {
+      // Timer based, so tests control it with fake timers. An abort (when abortResult is set) settles first.
+      setTimeout(answer, this.latencyMs);
       return promise;
     }
-    const response = this.responder;
-    call.resolve(typeof response === 'function' ? (response as (...a: A) => R)(...args) : response);
+    answer();
     return promise;
   }
 }

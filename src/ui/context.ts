@@ -26,8 +26,6 @@ export interface UiContextValue {
   readonly store: ViewStateStore;
   readonly controller: UiController;
   readonly config: Config;
-  /** True while the built-in demo providers are in use (TASK-036). */
-  readonly demo: boolean;
   /**
    * The one refresh guard shared by every control that refetches (Refresh and
    * both Retry buttons), so a second activation of ANY of them is ignored while

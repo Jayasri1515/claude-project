@@ -1,27 +1,25 @@
-import type { CurrentWeather, ForecastDay, Location } from '../../src/core/domain';
+import type { Coordinates, WeatherResult } from '../../src/core/domain';
+import { aborted } from '../../src/core/errors';
 import type { AppError } from '../../src/core/errors';
 import type { WeatherProvider } from '../../src/core/ports';
-import { ok } from '../../src/core/result';
+import { err, ok } from '../../src/core/result';
 import type { Result } from '../../src/core/result';
 import { ScriptedMethod } from './scripted';
 
-type CurrentResult = Result<CurrentWeather, AppError>;
-type ForecastResult = Result<ForecastDay[], AppError>;
+export type WeatherGetResult = Result<WeatherResult, AppError>;
 
 /**
- * Controllable WeatherProvider. Defaults: empty current weather and an empty
- * forecast (every field missing). Held calls are not settled by an abort; the
- * test can inspect `call.aborted` and decide.
+ * Controllable approved WeatherProvider. Default answer: both sections present but empty (every field missing).
+ * Latency, failure, hold/resolve and abort are controlled through `getScript` (see ScriptedMethod): a call whose signal
+ * aborts settles with `err(aborted())`, as the port contract requires.
  */
 export class FakeWeatherProvider implements WeatherProvider {
-  readonly currentScript = new ScriptedMethod<[Location], CurrentResult>(ok({}));
-  readonly forecastScript = new ScriptedMethod<[Location, number, boolean], ForecastResult>(ok([]));
+  readonly getScript = new ScriptedMethod<[Coordinates], WeatherGetResult>(
+    ok({ current: ok({}), forecast: ok([]) }),
+    () => err(aborted()),
+  );
 
-  getCurrent(loc: Location, signal: AbortSignal): Promise<CurrentResult> {
-    return this.currentScript.invoke([loc], signal);
-  }
-
-  getForecast(loc: Location, days: number, includeToday: boolean, signal: AbortSignal): Promise<ForecastResult> {
-    return this.forecastScript.invoke([loc, days, includeToday], signal);
+  get(coords: Coordinates, signal: AbortSignal): Promise<WeatherGetResult> {
+    return this.getScript.invoke([coords], signal);
   }
 }

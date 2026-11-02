@@ -5,7 +5,7 @@
  * Weather data is held in canonical units (Celsius, percent); conversion to
  * Fahrenheit happens only here. A missing or non-finite value renders as the
  * "Unavailable" text, never as 0 or blank (FR-018). Dates and numbers follow
- * the device locale unless a locale is passed (ODD-11). All user-visible text
+ * the device locale unless a locale is passed (ODD-11), except that forecast calendar dates are always English (Q27). All user-visible text
  * comes from the message table (`messages.ts`); this file holds no UI wording.
  */
 import type { ForecastDay, TemperatureUnit } from './domain';
@@ -131,6 +131,9 @@ export function formatDateTime(date: Date | undefined, options: DateTimeOptions 
   }).format(date);
 }
 
+/** Forecast dates are English only (Q27: no other language is supported), whatever the device locale. */
+export const FORECAST_DATE_LOCALE = 'en';
+
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /**
@@ -148,7 +151,7 @@ export function formatForecastDate(isoDate: string | undefined, options: FormatO
     instant.getUTCMonth() === month - 1 &&
     instant.getUTCDate() === day;
   if (!isRealDate) return message('ui.unavailable');
-  return new Intl.DateTimeFormat(options.locale, {
+  return new Intl.DateTimeFormat(options.locale ?? FORECAST_DATE_LOCALE, {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
@@ -156,14 +159,20 @@ export function formatForecastDate(isoDate: string | undefined, options: FormatO
   }).format(instant);
 }
 
-/** "Last updated <time>" or the Unavailable text when no time is known. */
+/** "Updated <time>" (M-31) or the Unavailable text when no time is known. */
 export function formatLastUpdated(date: Date | undefined, options: DateTimeOptions = {}): string {
   if (!isValidDate(date)) return message('ui.unavailable');
   return message('ui.lastUpdated', { time: formatTime(date, options) });
 }
 
-/** "Showing data from <time>" for a section that kept stale data. */
-export function formatDataFrom(date: Date | undefined, options: DateTimeOptions = {}): string {
+/** "Current weather updated <time>" (M-32) or the Unavailable text when no time is known. */
+export function formatCurrentUpdated(date: Date | undefined, options: DateTimeOptions = {}): string {
   if (!isValidDate(date)) return message('ui.unavailable');
-  return message('ui.dataFrom', { time: formatTime(date, options) });
+  return message('ui.currentUpdated', { time: formatTime(date, options) });
+}
+
+/** "Forecast updated <time>" (M-33) or the Unavailable text when no time is known. */
+export function formatForecastUpdated(date: Date | undefined, options: DateTimeOptions = {}): string {
+  if (!isValidDate(date)) return message('ui.unavailable');
+  return message('ui.forecastUpdated', { time: formatTime(date, options) });
 }

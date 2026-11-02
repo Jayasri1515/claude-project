@@ -3,13 +3,14 @@ import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { serviceUnavailable } from '../../src/core/errors';
-import { formatLastUpdated } from '../../src/core/format';
+import { formatCurrentUpdated, formatForecastUpdated, formatLastUpdated } from '../../src/core/format';
 import { err, ok } from '../../src/core/result';
 import { sampleForecast, sampleSnapshot } from '../fixtures/domain';
 import { city, isDisabled, renderStack, renderWithFakeController } from './helpers';
 
 const refreshButton = () => screen.getByRole('button', { name: 'Refresh' });
 const lastUpdated = (): string => document.querySelector('.last-updated')?.textContent ?? '';
+const updateLines = (): string[] => Array.from(document.querySelectorAll('.last-updated .updated-line')).map((line) => line.textContent ?? '');
 
 describe('Refresh control and last-updated text (TASK-030)', () => {
   it('is hidden until weather is displayed', () => {
@@ -23,22 +24,51 @@ describe('Refresh control and last-updated text (TASK-030)', () => {
     expect(lastUpdated()).toBe(formatLastUpdated(new Date('2026-01-01T12:00:05Z')));
   });
 
-  it('shows the older of the two section times', () => {
+  it('equal section times: one line "Updated <time>" (M-31)', () => {
+    renderWithFakeController({ snapshot: sampleSnapshot });
+    expect(updateLines()).toEqual([formatLastUpdated(new Date('2026-01-01T12:00:05Z'))]);
+    expect(updateLines()[0]).toMatch(/^Updated /);
+  });
+
+  it('different section times: two labelled lines, each with its own time, so no stale section sits under a newer time (U4, M-32, M-33)', () => {
+    const newer = new Date('2026-01-01T12:30:00Z');
+    const older = new Date('2026-01-01T12:10:00Z');
     renderWithFakeController({
       snapshot: {
         ...sampleSnapshot,
-        current: { ...sampleSnapshot.current, updatedAt: new Date('2026-01-01T12:30:00Z') },
-        forecast: { ...sampleSnapshot.forecast, updatedAt: new Date('2026-01-01T12:10:00Z') },
+        current: { ...sampleSnapshot.current, updatedAt: newer },
+        forecast: { ...sampleSnapshot.forecast, updatedAt: older },
       },
     });
-    expect(lastUpdated()).toBe(formatLastUpdated(new Date('2026-01-01T12:10:00Z')));
+    expect(updateLines()).toEqual([formatCurrentUpdated(newer), formatForecastUpdated(older)]);
+    expect(updateLines()[0]).toMatch(/^Current weather updated /);
+    expect(updateLines()[1]).toMatch(/^Forecast updated /);
+    expect(lastUpdated()).not.toMatch(/^Updated /);
   });
 
-  it('shows no time when a section has never succeeded', () => {
+  it('a section that never succeeded has no line: only the other, labelled one is shown', () => {
     renderWithFakeController({
       snapshot: { ...sampleSnapshot, forecast: { status: 'error', error: serviceUnavailable() } },
     });
+    expect(updateLines()).toEqual([formatCurrentUpdated(new Date('2026-01-01T12:00:05Z'))]);
+  });
+
+  it('shows no time at all when neither section has succeeded', () => {
+    renderWithFakeController({
+      snapshot: {
+        ...sampleSnapshot,
+        current: { status: 'error', error: serviceUnavailable() },
+        forecast: { status: 'error', error: serviceUnavailable() },
+      },
+    });
     expect(document.querySelector('.last-updated')).toBeNull();
+  });
+
+  it('an invalid time counts as no time', () => {
+    renderWithFakeController({
+      snapshot: { ...sampleSnapshot, current: { ...sampleSnapshot.current, updatedAt: new Date(Number.NaN) } },
+    });
+    expect(updateLines()).toEqual([formatForecastUpdated(new Date('2026-01-01T12:00:05Z'))]);
   });
 
   it('is unavailable (aria-disabled, still focusable) while a section is loading', () => {
@@ -110,5 +140,13 @@ describe('Refresh control and last-updated text (TASK-030)', () => {
     const forecast = screen.getByRole('region', { name: 'Forecast' });
     expect(within(forecast).getAllByRole('listitem')).toHaveLength(3);
     expect(isDisabled(refreshButton())).toBe(false);
+    // M-27 is shown once above the weather block, not repeated in each section (message-wording.md).
+    expect(screen.getAllByText('Could not refresh. The weather shown may be out of date.')).toHaveLength(1);
+    expect(document.querySelector('.refresh-bar')?.textContent).toContain('Could not refresh.');
+  });
+
+  it('is unavailable while a search is waiting for its answer (N1)', () => {
+    renderWithFakeController({ snapshot: sampleSnapshot, search: { status: 'loading' } });
+    expect(isDisabled(refreshButton())).toBe(true);
   });
 });

@@ -2,7 +2,7 @@
  * Shared handling of the 'aborted' result variant (architecture 5.3 amendment).
  * Services whose caller supplied an AbortSignal return ABORTED when the signal
  * fired before the work finished; callers discard it without any state change
- * or message. The variant itself is defined with the LocationService port.
+ * or message. The variant itself is defined with the LegacyLocationService port.
  */
 import { ABORTED } from './ports/locationService';
 import type { Aborted } from './ports/locationService';

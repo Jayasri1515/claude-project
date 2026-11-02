@@ -1,8 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** Set to "true" to opt in to the built-in demo providers (see src/composition.ts). */
-  readonly VITE_USE_DEMO?: string;
+  /** Public base path of the deployed app. Read at build time by vite.config.ts (see scripts/baseUrl.mjs and .env.example). */
+  readonly VITE_BASE?: string;
 }
 
 interface ImportMeta {

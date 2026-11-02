@@ -15,7 +15,7 @@ import { createConfig } from '../../src/core/config';
 import { err, ok } from '../../src/core/result';
 import { serviceUnavailable } from '../../src/core/errors';
 import { App } from '../../src/ui/App';
-import { FakeClock, FakeGeocodingProvider, FakeLocationService, FakeWeatherProvider } from '../fakes';
+import { FakeClock, LegacyFakeGeocodingProvider, LegacyFakeLocationService, LegacyFakeWeatherProvider } from '../fakes';
 import { city } from '../ui/helpers';
 
 const QUERY = 'Qx7-UNIQUE-SEARCH-TEXT';
@@ -36,13 +36,13 @@ function persistedText(): string {
 }
 
 function build(options: { withReverse?: boolean } = {}) {
-  const geocoding = new FakeGeocodingProvider({ withReverse: options.withReverse ?? false });
-  const weather = new FakeWeatherProvider();
-  const location = new FakeLocationService('prompt');
+  const geocoding = new LegacyFakeGeocodingProvider({ withReverse: options.withReverse ?? false });
+  const weather = new LegacyFakeWeatherProvider();
+  const location = new LegacyFakeLocationService('prompt');
   const c = compose({ config: createConfig(), geocoding, weather, locationService: location, clock: new FakeClock() });
   weather.currentScript.respondWith(ok({ temperatureC: 5, humidityPct: 5, condition: 'CLEAR' }));
   weather.forecastScript.respondWith(ok([]));
-  render(<App store={c.store} controller={c.controller} config={c.config} demo={c.demo} />);
+  render(<App store={c.store} controller={c.controller} config={c.config} />);
   return { c, geocoding, weather, location };
 }
 
@@ -71,7 +71,7 @@ describe('Search text is never persisted or logged (NFR-005)', () => {
     t.geocoding.searchScript.respondWith(ok([]));
     await user.clear(input());
     await user.type(input(), `${QUERY}-NOTFOUND{Enter}`);
-    await screen.findByText(/City not found/);
+    await screen.findByText(/No matching city was found/);
     t.geocoding.searchScript.respondWith(err(serviceUnavailable()));
     await user.clear(input());
     await user.type(input(), `${QUERY}-ERROR{Enter}`);
@@ -93,7 +93,7 @@ describe('Search text is never persisted or logged (NFR-005)', () => {
     const user = userEvent.setup();
     const t = build();
     await user.type(screen.getByLabelText('City name'), `${QUERY}{Enter}`);
-    await screen.findByText(/City not found/);
+    await screen.findByText(/No matching city was found/);
     expect(t.geocoding.searchScript.calls.map((c) => c.args[0])).toEqual([QUERY]);
     expect(JSON.stringify(t.weather.currentScript.calls.map((c) => c.args))).not.toContain(QUERY);
     expect(JSON.stringify(t.weather.forecastScript.calls.map((c) => c.args))).not.toContain(QUERY);

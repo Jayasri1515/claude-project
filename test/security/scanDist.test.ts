@@ -17,11 +17,12 @@ import {
   readRuntimePackages,
   scanDirectory,
 } from '../../scripts/scanDistLib.mjs';
+import { cspMetaTag } from '../../scripts/csp.mjs';
 import { REPO_ROOT } from '../support/sourceFiles';
 
 const SECRET = 'const api' + '_key = "' + 'abcd1234efgh' + '";';
 const CLEAN_JS = 'function r(){return"forecast-"+i}';
-const CLEAN_HTML = '<!doctype html><title>Weather</title><div id="root"></div>';
+const CLEAN_HTML = `<!doctype html><head>${cspMetaTag()}<title>Weather</title></head><div id="root"></div>`;
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -40,8 +41,11 @@ function makeDist(files: Record<string, string>): string {
 }
 
 type ScanOptions = NonNullable<Parameters<typeof scanDirectory>[1]>;
-/** Options that switch off the package rules (notices, icon set) so a test of another rule is not about them. */
-const NO_PACKAGE_RULES: ScanOptions = { expectedIcons: null, runtimePackages: [] };
+/**
+ * Options that switch off the package rules (notices, icon set) and the CSP rule so a test of another rule is not
+ * about them. The service worker, bundle size and CSP rules are tested in scanDistRules.test.ts.
+ */
+const NO_PACKAGE_RULES: ScanOptions = { expectedIcons: null, runtimePackages: [], requireCsp: false };
 const scan = (root: string, options: ScanOptions = {}) => scanDirectory(root, { ...NO_PACKAGE_RULES, ...options });
 const findingNames = (root: string, options?: ScanOptions): string[] => scan(root, options).findings.map((f) => f.name);
 
@@ -131,18 +135,16 @@ describe('scanDirectory: findings', () => {
     expect(findingNames(makeDist({ 'a.js': 'fetch("http://localhost:5173/x")' }))).toEqual([]);
   });
 
-  it('demo content is a finding in a release scan and allowed with allowDemo (credentials still are findings)', () => {
+  it('invented-data content is always a finding (negative test for the T-14 removal; there is no allow option)', () => {
     const root = makeDist({ 'index.html': CLEAN_HTML, 'assets/app.js': 'x={name:"Testville"}' });
     expect(findingNames(root)).toContain('demo place "Testville"');
-    expect(findingNames(root, { allowDemo: true })).toEqual([]);
     const withSecret = makeDist({ 'assets/app.js': 'x={name:"Testville"};' + SECRET });
-    expect(findingNames(withSecret, { allowDemo: true })).toEqual(['credential assignment']);
+    expect(findingNames(withSecret)).toEqual(expect.arrayContaining(['demo place "Testville"', 'credential assignment']));
   });
 
-  it('a demo chunk file name is a finding even if its content looks clean; allowed with allowDemo', () => {
+  it('a demo chunk file name is a finding even if its content looks clean', () => {
     const root = makeDist({ 'index.html': CLEAN_HTML, 'assets/demoComposition-Cr6nNFPP.js': CLEAN_JS });
     expect(findingNames(root)).toEqual(expect.arrayContaining(['demo chunk file name', 'demo module file name']));
-    expect(findingNames(root, { allowDemo: true })).toEqual([]);
   });
 
   it('a demo-named file of a type that is not read (an image) is still caught by name', () => {
@@ -188,10 +190,10 @@ describe('scripts/scanDist.mjs command: exit codes', () => {
     expect(r.stderr).not.toContain('abcd1234efgh');
   });
 
-  it('exits 1 on a demo marker, and 0 with --allow-demo', () => {
+  it('exits 1 on a demo marker, and the removed --allow-demo flag does not change that', () => {
     const root = makeDist(validDist({ 'assets/demoComposition-abc.js': 'export{S as composeDemo}; "Testville"' }));
     expect(run(root).status).toBe(1);
-    expect(run(root, '--allow-demo').status).toBe(0);
+    expect(run(root, '--allow-demo').status).toBe(1);
   });
 
   it('exits 1 when the folder does not exist', () => {
@@ -212,9 +214,9 @@ describe('the actual dist/ folder, when present', () => {
   const dist = join(REPO_ROOT, 'dist');
   // Skipped (shown as skipped in the test report) when dist/ is absent, rather than passing vacuously.
   it.skipIf(!existsSync(join(dist, 'index.html')))(
-    'has no credential-like text, no non-HTTPS URL and no unreadable file (valid for release and demo builds alike)',
+    'has no credential-like text, no non-HTTPS URL and no unreadable file',
     () => {
-      const result = scanDirectory(dist, { allowDemo: true });
+      const result = scanDirectory(dist);
       expect(result.scanned.length).toBeGreaterThan(1);
       expect(result.unreadable).toEqual([]);
       expect(result.findings).toEqual([]);
@@ -231,19 +233,19 @@ describe('scanDirectory: icon rules', () => {
   const only = (js: string) => makeDist({ 'assets/a.js': js });
 
   it('positive: exactly the pinned icons is clean, and the names are listed', () => {
-    const result = scanDirectory(only(FULL_JS), { runtimePackages: [] });
+    const result = scanDirectory(only(FULL_JS), { runtimePackages: [], requireCsp: false });
     expect(result.findings).toEqual([]);
     expect(result.icons).toEqual([...EXPECTED_ICONS].sort());
   });
 
   it('negative: an icon of the pinned set missing from the bundle is a finding naming it', () => {
     const js = 'function lucideIcon(){}' + EXPECTED_ICONS.filter((n) => n !== 'cloud-fog').map(icon).join('');
-    const result = scanDirectory(only(js), { runtimePackages: [] });
+    const result = scanDirectory(only(js), { runtimePackages: [], requireCsp: false });
     expect(result.findings).toEqual([expect.objectContaining({ name: 'icon missing from bundle', context: 'cloud-fog' })]);
   });
 
   it('negative: an icon that is not in the pinned set is a finding naming it', () => {
-    const result = scanDirectory(only(FULL_JS + icon('wind')), { runtimePackages: [] });
+    const result = scanDirectory(only(FULL_JS + icon('wind')), { runtimePackages: [], requireCsp: false });
     expect(result.findings).toEqual([expect.objectContaining({ name: 'unexpected icon in bundle', context: 'wind' })]);
   });
 
@@ -252,14 +254,14 @@ describe('scanDirectory: icon rules', () => {
     const reshaped = 'function lucideIcon(){}' + 'var x={size:24,name:`sun`,node:[[`path`,{d:`M1`}]]};';
     expect(findingNames(only(reshaped))).toEqual(['icon detection found no icons']);
     // With the pinned set the missing icons are reported as well.
-    expect(scanDirectory(only(reshaped), { runtimePackages: [] }).findings.map((f) => f.name)).toEqual([
+    expect(scanDirectory(only(reshaped), { runtimePackages: [], requireCsp: false }).findings.map((f) => f.name)).toEqual([
       'icon detection found no icons',
       'icon missing from bundle',
     ]);
   });
 
   it('negative: no Lucide code and no icons at all fails the pinned-set check (a build without icons is wrong)', () => {
-    expect(scanDirectory(only(CLEAN_JS), { runtimePackages: [] }).findings.map((f) => f.name)).toEqual(['icon missing from bundle']);
+    expect(scanDirectory(only(CLEAN_JS), { runtimePackages: [], requireCsp: false }).findings.map((f) => f.name)).toEqual(['icon missing from bundle']);
   });
 
   it('positive: with the exact-set check off, a bundle without Lucide code is not a finding', () => {
@@ -413,11 +415,10 @@ describe('scanDirectory: notices rule on a folder', () => {
     expect(scanDirectory(makeDist(validDist())).findings).toEqual([]);
   });
 
-  it('negative: no notices file is a finding, in a demo scan too', () => {
+  it('negative: no notices file is a finding', () => {
     const files = validDist();
     delete files['THIRD_PARTY_NOTICES.txt'];
     expect(findingNames(makeDist(files), defaults)).toEqual(['third-party notices missing']);
-    expect(findingNames(makeDist(files), { ...defaults, allowDemo: true })).toEqual(['third-party notices missing']);
   });
 
   it('negative: a notice for a stale version fails the folder scan (the version comes from node_modules)', () => {
@@ -453,7 +454,7 @@ describe('the actual dist/ folder, with every rule', () => {
   it.skipIf(!existsSync(join(dist, 'index.html')))(
     'bundles exactly the pinned icons and ships a notice for every runtime package at the installed version',
     () => {
-      const result = scanDirectory(dist, { allowDemo: true });
+      const result = scanDirectory(dist);
       expect(result.icons).toEqual([...EXPECTED_ICONS].sort());
       expect(result.findings).toEqual([]);
       expect(checkNotices(readFileSync(join(dist, 'THIRD_PARTY_NOTICES.txt'), 'utf8'), readRuntimePackages())).toEqual([]);

@@ -16,9 +16,9 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { locationDenied, serviceUnavailable, timeoutError } from '../../src/core/errors';
+import { permissionDenied, serviceUnavailable, timeoutError } from '../../src/core/errors';
 import { FAVORITES_STORAGE_KEY } from '../../src/core/favorites/favoritesService';
-import { formatForecastDate, formatLastUpdated } from '../../src/core/format';
+import { formatCurrentUpdated, formatForecastDate, formatForecastUpdated, formatLastUpdated } from '../../src/core/format';
 import { err, ok } from '../../src/core/result';
 import { sampleForecast } from '../fixtures/domain';
 import { InMemoryKeyValueStore } from '../fakes';
@@ -34,6 +34,8 @@ const favorites = () => region('Favorites');
 const values = (): string[] => Array.from(current().querySelectorAll('dd')).map((dd) => dd.textContent ?? '');
 const rows = (): HTMLElement[] => within(forecast()).queryAllByRole('listitem');
 const lastUpdated = (): string => document.querySelector('.last-updated')?.textContent ?? '';
+const updateLines = (): string[] =>
+  Array.from(document.querySelectorAll('.last-updated .updated-line')).map((line) => line.textContent ?? '');
 const refreshButton = () => screen.getByRole('button', { name: 'Refresh' });
 const locate = () => screen.getByRole('button', { name: 'Use my location' });
 
@@ -81,7 +83,7 @@ describe('US-001 City search', () => {
     const t = renderStack();
     t.geocoding.searchScript.respondWith(ok([]));
     await search(user, 'Zzyzx');
-    expect(await screen.findByText('City not found. Check the spelling and try again.')).toBeTruthy();
+    expect(await screen.findByText('No matching city was found. Try a different name.')).toBeTruthy();
     expect(t.weather.currentScript.callCount).toBe(0);
     expect(t.weather.forecastScript.callCount).toBe(0);
   });
@@ -152,31 +154,33 @@ describe('US-002 Device location', () => {
     expect(rows()).toHaveLength(3);
   });
 
-  it('AC-002-2: permission not yet granted: nothing asks for the position at launch, only the user action does', async () => {
+  it('AC-002-2: permission not yet granted: the app asks for the position when it opens, which is what shows the browser prompt', async () => {
     const user = userEvent.setup();
     const t = renderStack({ permission: 'prompt' });
     t.location.positionScript.respondWith(ok({ lat: 5, lon: 6 }));
-    await act(() => t.controller.start());
     expect(t.location.positionScript.callCount).toBe(0);
-    await user.click(locate());
+    await act(() => t.controller.start());
     expect(t.location.positionScript.callCount).toBe(1);
     expect(await within(current()).findByRole('heading', { name: 'Current location' })).toBeTruthy();
+    // The control starts a fresh attempt on request.
+    await user.click(locate());
+    expect(t.location.positionScript.callCount).toBe(2);
   });
 
   it('AC-002-3 / EC-007: permission denied: message shown and city search still works', async () => {
     const user = userEvent.setup();
     const t = renderStack({ permission: 'prompt' });
-    t.location.positionScript.respondWith(err(locationDenied()));
+    t.location.positionScript.respondWith(err(permissionDenied()));
     await user.click(locate());
-    expect(await screen.findByText(/Location access was denied/)).toBeTruthy();
+    expect(await screen.findByText(/Location access is turned off for this site/)).toBeTruthy();
     t.geocoding.searchScript.respondWith(ok([oslo]));
     await search(user, 'Oslo');
     expect(await within(current()).findByRole('heading', { name: 'Oslo, Viken, Norway' })).toBeTruthy();
   });
 
   it.each([
-    ['times out', timeoutError(), /took too long/],
-    ['cannot be determined', { code: 'LOCATION_UNAVAILABLE', messageKey: 'error.locationUnavailable' } as const, /could not be determined/],
+    ['times out', timeoutError(), /Finding your location took too long/],
+    ['cannot be determined', { kind: 'position_unavailable', messageKey: 'error.locationUnavailable' } as const, /could not be determined/],
   ])('AC-002-4 / EC-008: location %s: helpful message and city search still works', async (_n, error, text) => {
     const user = userEvent.setup();
     const t = renderStack({ permission: 'prompt' });
@@ -193,8 +197,9 @@ describe('US-002 Device location', () => {
     const user = userEvent.setup();
     const t = renderStack({ permission: 'unsupported' });
     await act(() => t.controller.start());
+    expect(await screen.findByText(/Location detection is not available in this browser/)).toBeTruthy();
     await user.click(locate());
-    expect(await screen.findByText(/could not be determined/)).toBeTruthy();
+    expect(await screen.findByText(/Location detection is not available in this browser/)).toBeTruthy();
     expect(t.location.positionScript.callCount).toBe(0);
     expect((screen.getByLabelText('City name') as HTMLInputElement).disabled).toBe(false);
   });
@@ -260,9 +265,9 @@ describe('US-004 Three-day forecast', () => {
     expect(rows()).toHaveLength(3);
     expect(rows()[0]?.textContent).toContain(formatForecastDate('2026-01-02'));
     expect(rows()[0]?.textContent).toContain('High 20°C, Low 10°C');
-    expect(rows().map((r) => r.textContent?.match(/Clear|Rain|Cloudy/)?.[0])).toEqual(['Clear', 'Rain', 'Cloudy']);
+    expect(rows().map((r) => r.textContent?.match(/Sunny|Rain|Cloudy/)?.[0])).toEqual(['Sunny', 'Rain', 'Cloudy']);
     expect(rows().every((r) => r.querySelector('svg.weather-icon[aria-hidden="true"]') !== null)).toBe(true);
-    // Each row's icon is the one for its own condition (Clear, Rain, Cloudy), and the text is there too.
+    // Each row's icon is the one for its own condition (Sunny, Rain, Cloudy), and the text is there too.
     expect(rows().map((r) => r.querySelector('svg.weather-icon')?.getAttribute('data-icon-key'))).toEqual(['clear', 'rain', 'cloudy']);
   });
 
@@ -271,9 +276,9 @@ describe('US-004 Three-day forecast', () => {
     t.weather.forecastScript.respondWith(ok(sampleForecast.slice(0, 1)));
     await act(() => t.controller.chooseCandidate(oslo));
     expect(rows()).toHaveLength(3);
-    expect(rows()[0]?.textContent).toContain('Clear');
-    expect(rows()[1]?.textContent).toBe('Forecast unavailable for this day');
-    expect(rows()[2]?.textContent).toBe('Forecast unavailable for this day');
+    expect(rows()[0]?.textContent).toContain('Sunny');
+    expect(rows()[1]?.textContent).toBe('Unavailable');
+    expect(rows()[2]?.textContent).toBe('Unavailable');
   });
 
   it('AC-004-5: forecast failure shows an error and a retry option; current weather stays visible; Retry recovers', async () => {
@@ -303,7 +308,7 @@ describe('US-005 Manual refresh', () => {
     t.weather.forecastScript.respondWith(ok(sampleForecast.slice(0, 2)));
     await user.click(refreshButton());
     await waitFor(() => expect(values()[0]).toBe('30°C'));
-    await waitFor(() => expect(rows()[2]?.textContent).toBe('Forecast unavailable for this day'));
+    await waitFor(() => expect(rows()[2]?.textContent).toBe('Unavailable'));
     expect(t.weather.currentScript.callCount).toBe(2);
     expect(t.weather.forecastScript.callCount).toBe(2);
     expect(t.weather.currentScript.calls[1]?.args[0].key).toBe(oslo.key);
@@ -357,9 +362,12 @@ describe('US-005 Manual refresh', () => {
     await waitFor(() => expect(values()[0]).toBe('40°C'));
     expect(within(forecast()).getByText(/weather service is unavailable/)).toBeTruthy();
     expect(rows()).toHaveLength(3);
-    expect(within(forecast()).getByText(/Showing data from/)).toBeTruthy();
-    // The shared last-updated time is the older one: the forecast's earlier success.
-    expect(lastUpdated()).toBe(formatLastUpdated(new Date('2026-01-01T12:00:00Z')));
+    expect(within(forecast()).getByText('Could not refresh. The weather shown may be out of date.')).toBeTruthy();
+    // The times now differ (U4): one labelled line per section, the forecast keeping its earlier success.
+    expect(updateLines()).toEqual([
+      formatCurrentUpdated(new Date(t.clock.now())),
+      formatForecastUpdated(new Date('2026-01-01T12:00:00Z')),
+    ]);
   });
 });
 
@@ -393,7 +401,7 @@ describe('US-006 Favorites', () => {
     await act(() => t.controller.addFavorite());
     await act(() => t.controller.addFavorite());
     expect(screen.queryByRole('button', { name: 'Add to favorites' })).toBeNull();
-    expect(JSON.parse(t.kv.data.get(FAVORITES_STORAGE_KEY) ?? '{}').favorites).toHaveLength(1);
+    expect(JSON.parse(t.kv.data.get(FAVORITES_STORAGE_KEY) ?? '{}').items).toHaveLength(1);
     expect(within(favorites()).getAllByRole('listitem')).toHaveLength(1);
   });
 
@@ -403,7 +411,7 @@ describe('US-006 Favorites', () => {
     await act(() => t.controller.chooseCandidate(oslo));
     await act(() => t.controller.addFavorite());
     await user.click(screen.getByRole('button', { name: 'Remove Oslo, Viken, Norway from favorites' }));
-    await waitFor(() => expect(within(favorites()).getByText('No favorites yet.')).toBeTruthy());
+    await waitFor(() => expect(within(favorites()).getByText('No favorites yet. Search for a city and choose Add to favorites.')).toBeTruthy());
     expect(within(current()).getByRole('heading', { name: 'Oslo, Viken, Norway' })).toBeTruthy();
     expect(values()[0]).toBe('22°C');
     expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
@@ -426,7 +434,7 @@ describe('US-006 Favorites', () => {
     kv.failAll();
     const t = renderStack({ kv });
     await act(() => t.controller.start());
-    expect(await within(favorites()).findByText('Favorites may not be saved on this device.')).toBeTruthy();
+    expect(await within(favorites()).findByText('Favorites cannot be saved on this device. They will be kept only until you close this page.')).toBeTruthy();
     await act(() => t.controller.chooseCandidate(oslo));
     await user.click(screen.getByRole('button', { name: 'Add to favorites' }));
     expect(await within(favorites()).findByRole('button', { name: 'Oslo, Viken, Norway Showing' })).toBeTruthy();

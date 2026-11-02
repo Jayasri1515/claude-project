@@ -1,21 +1,22 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppController } from '../../src/core/appController';
 import { createConfig } from '../../src/core/config';
 import type { Location } from '../../src/core/domain';
 import { FAVORITES_STORAGE_KEY, FavoritesService } from '../../src/core/favorites/favoritesService';
 import { LocationFlow } from '../../src/core/locationFlow';
+import type { PermissionState } from '../../src/core/ports';
 import { err, ok } from '../../src/core/result';
 import { SearchService } from '../../src/core/search';
 import { SettingsService } from '../../src/core/settings';
 import { favoriteAvailability, ViewStateStore } from '../../src/core/store';
 import { WeatherService } from '../../src/core/weatherService';
-import { serviceUnavailable } from '../../src/core/errors';
+import { serviceUnavailable, timeoutError } from '../../src/core/errors';
 import { sampleLocation } from '../fixtures/domain';
 import {
   FakeClock,
-  FakeGeocodingProvider,
-  FakeLocationService,
-  FakeWeatherProvider,
+  LegacyFakeGeocodingProvider,
+  LegacyFakeLocationService,
+  LegacyFakeWeatherProvider,
   InMemoryKeyValueStore,
 } from '../fakes';
 
@@ -34,13 +35,13 @@ const B = city(2);
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
 
 function setup(
-  options: { permission?: 'granted' | 'prompt' | 'denied' | 'unsupported'; withReverse?: boolean; store?: InMemoryKeyValueStore } = {},
+  options: { permission?: PermissionState; withReverse?: boolean; store?: InMemoryKeyValueStore } = {},
 ) {
   const kv = options.store ?? new InMemoryKeyValueStore();
   const config = createConfig();
-  const geocoding = new FakeGeocodingProvider({ withReverse: options.withReverse ?? false });
-  const weatherProvider = new FakeWeatherProvider();
-  const location = new FakeLocationService(options.permission ?? 'prompt');
+  const geocoding = new LegacyFakeGeocodingProvider({ withReverse: options.withReverse ?? false });
+  const weatherProvider = new LegacyFakeWeatherProvider();
+  const location = new LegacyFakeLocationService(options.permission ?? 'prompt');
   const clock = new FakeClock();
   const store = new ViewStateStore();
   const favorites = new FavoritesService({ store: kv, config });
@@ -60,28 +61,69 @@ function setup(
 
 const coords = ok({ lat: 33.3, lon: 44.4 });
 
-describe('launch behavior (LaunchPolicy)', () => {
-  it('permission granted: auto-detects and shows weather', async () => {
-    const t = setup({ permission: 'granted' });
-    t.location.positionScript.respondWith(coords);
-    await t.controller.start();
-    expect(t.location.positionScript.callCount).toBe(1);
-    expect(t.store.getState().selectedLocation?.source).toBe('device');
-    expect(t.store.getState().snapshot?.current.status).toBe('ready');
-    expect(t.weatherProvider.currentScript.callCount).toBe(1);
-  });
-
-  it.each(['prompt', 'denied', 'unsupported'] as const)(
-    'permission %s: never calls getCurrentPosition and loads no weather',
+describe('launch behavior: the device location is requested when the app opens (REQ-WF2-01, REQ-WF2-02)', () => {
+  it.each(['granted', 'prompt', 'unknown'] as const)(
+    'permission %s: asks for the position at launch and shows the weather for it',
     async (permission) => {
       const t = setup({ permission });
+      t.location.positionScript.respondWith(coords);
       await t.controller.start();
-      expect(t.location.positionScript.callCount).toBe(0);
-      expect(t.weatherProvider.currentScript.callCount).toBe(0);
-      expect(t.store.getState().selectedLocation).toBeUndefined();
-      expect(t.store.getState().locationFlow).toEqual({ status: 'idle' });
+      expect(t.location.positionScript.callCount).toBe(1);
+      expect(t.store.getState().selectedLocation?.source).toBe('device');
+      expect(t.store.getState().snapshot?.current.status).toBe('ready');
+      expect(t.weatherProvider.currentScript.callCount).toBe(1);
     },
   );
+
+  it('a prompt left unanswered keeps the waiting state: no weather, no error, search free', async () => {
+    const t = setup({ permission: 'prompt' });
+    t.location.positionScript.hold();
+    const launching = t.controller.start();
+    await flush();
+    expect(t.location.positionScript.callCount).toBe(1);
+    expect(t.store.getState().locationFlow).toEqual({ status: 'locating' });
+    expect(t.weatherProvider.currentScript.callCount).toBe(0);
+    t.geocoding.searchScript.respondWith(ok([A]));
+    await t.controller.searchCity('city one');
+    await launching;
+    expect(t.store.getState().selectedLocation?.key).toBe(A.key);
+    expect(t.store.getState().locationFlow).toEqual({ status: 'idle' });
+  });
+
+  it('denied at launch: no position call, the denied outcome with its settings hint, no weather', async () => {
+    const t = setup({ permission: 'denied' });
+    await t.controller.start();
+    expect(t.location.positionScript.callCount).toBe(0);
+    expect(t.weatherProvider.currentScript.callCount).toBe(0);
+    expect(t.store.getState().selectedLocation).toBeUndefined();
+    expect(t.store.getState().locationFlow).toEqual({
+      status: 'error',
+      error: { kind: 'permission_denied', messageKey: 'error.locationDenied' },
+      hint: 'ui.location.deniedHint',
+    });
+  });
+
+  it('unsupported at launch: no position call, the unsupported outcome', async () => {
+    const t = setup({ permission: 'unsupported' });
+    await t.controller.start();
+    expect(t.location.positionScript.callCount).toBe(0);
+    expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { kind: 'unsupported' } });
+  });
+
+  it('the prompt refused: the denied outcome and no weather', async () => {
+    const t = setup({ permission: 'prompt' });
+    t.location.positionScript.respondWith(err({ kind: 'permission_denied', messageKey: 'error.locationDenied' }));
+    await t.controller.start();
+    expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { kind: 'permission_denied' } });
+    expect(t.weatherProvider.currentScript.callCount).toBe(0);
+  });
+
+  it('position unavailable at launch: the unavailable outcome and no weather', async () => {
+    const t = setup({ permission: 'granted' });
+    await t.controller.start(); // the fake answers position_unavailable by default
+    expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { kind: 'position_unavailable' } });
+    expect(t.weatherProvider.currentScript.callCount).toBe(0);
+  });
 
   it('loads favorites and the saved unit into the store', async () => {
     const kv = new InMemoryKeyValueStore();
@@ -108,14 +150,16 @@ describe('launch behavior (LaunchPolicy)', () => {
 });
 
 describe('"Use my location"', () => {
-  it('prompt state: the user action is what calls getCurrentPosition', async () => {
+  it('a new attempt after launch asks the platform again', async () => {
     const t = setup({ permission: 'prompt' });
-    t.location.positionScript.respondWith(coords);
+    t.location.positionScript.respondWith(err({ kind: 'permission_denied', messageKey: 'error.locationDenied' }));
     await t.controller.start();
-    expect(t.location.positionScript.callCount).toBe(0);
-    await t.controller.useMyLocation();
     expect(t.location.positionScript.callCount).toBe(1);
+    t.location.positionScript.respondWith(coords);
+    await t.controller.useMyLocation();
+    expect(t.location.positionScript.callCount).toBe(2);
     expect(t.store.getState().selectedLocation?.name).toBe('Current location');
+    expect(t.store.getState().locationFlow).toEqual({ status: 'idle' });
   });
 
   it('re-reads the permission on every use', async () => {
@@ -127,19 +171,117 @@ describe('"Use my location"', () => {
     t.location.permission = 'denied';
     await t.controller.useMyLocation();
     expect(t.location.permissionCalls - afterStart).toBe(2);
-    expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { code: 'LOCATION_DENIED' } });
+    expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { kind: 'permission_denied' } });
   });
 
   it('a failure keeps city search usable and keeps the displayed weather', async () => {
     const t = setup({ permission: 'granted' });
     await t.controller.chooseCandidate(A);
-    t.location.positionScript.respondWith(err({ code: 'TIMEOUT', messageKey: 'error.timeout' }));
+    t.location.positionScript.respondWith(err(timeoutError()));
     await t.controller.useMyLocation();
-    expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { code: 'TIMEOUT' } });
+    expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { kind: 'timeout' } });
     expect(t.store.getState().snapshot?.location.key).toBe(A.key);
     t.geocoding.searchScript.respondWith(ok([B]));
     await t.controller.searchCity('two');
     expect(t.store.getState().selectedLocation?.key).toBe(B.key);
+  });
+});
+
+describe('location watchdog and late results (architecture 3.3 steps 2, 4 and 6)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Launch with a position call that never answers, under fake timers. */
+  async function launchHeld(permission: PermissionState) {
+    vi.useFakeTimers();
+    const t = setup({ permission });
+    t.location.positionScript.hold();
+    t.location.grantScript.hold();
+    const launching = t.controller.start();
+    await vi.advanceTimersByTimeAsync(0);
+    return { ...t, launching };
+  }
+
+  it('permission granted: after locationTimeoutMs the timeout message state is set, the attempt stays open, and the launch settles', async () => {
+    const t = await launchHeld('granted');
+    const ms = createConfig().locationTimeoutMs;
+    await vi.advanceTimersByTimeAsync(ms - 1);
+    expect(t.store.getState().locationFlow).toEqual({ status: 'locating' });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(t.store.getState().locationFlow).toEqual({
+      status: 'error',
+      error: { kind: 'timeout', messageKey: 'error.locationTimeout' },
+    });
+    await t.launching; // the intent no longer blocks the retry control
+    expect(t.location.positionScript.calls[0]?.aborted).toBe(false);
+    expect(t.store.getState().selectedLocation).toBeUndefined();
+  });
+
+  it('no Permissions API: the timeout state carries the prompt-wait wording', async () => {
+    const t = await launchHeld('unknown');
+    await vi.advanceTimersByTimeAsync(createConfig().locationTimeoutMs);
+    expect(t.store.getState().locationFlow).toMatchObject({
+      status: 'error',
+      error: { kind: 'timeout', messageKey: 'error.locationTimeoutPromptPending' },
+    });
+  });
+
+  it('an unanswered prompt stays in the waiting state for as long as it is open: never a timeout', async () => {
+    const t = await launchHeld('prompt');
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(t.store.getState().locationFlow).toEqual({ status: 'locating' });
+  });
+
+  it('a position that arrives after the timeout is applied and clears the timeout message', async () => {
+    const t = await launchHeld('granted');
+    await vi.advanceTimersByTimeAsync(createConfig().locationTimeoutMs);
+    expect(t.store.getState().locationFlow.status).toBe('error');
+    t.location.positionScript.resolveNext(coords);
+    await vi.advanceTimersByTimeAsync(0);
+    const state = t.store.getState();
+    expect(state.locationFlow).toEqual({ status: 'idle' });
+    expect(state.selectedLocation?.source).toBe('device');
+    expect(state.snapshot?.current.status).toBe('ready');
+  });
+
+  it('a position that arrives after the user chose a city is discarded', async () => {
+    const t = await launchHeld('granted');
+    await vi.advanceTimersByTimeAsync(createConfig().locationTimeoutMs);
+    t.geocoding.searchScript.respondWith(ok([A]));
+    await t.controller.searchCity('city one');
+    t.location.positionScript.pending[0]?.resolve(coords);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.store.getState().selectedLocation?.key).toBe(A.key);
+    expect(t.weatherProvider.currentScript.calls.every((c) => c.args[0].key === A.key)).toBe(true);
+  });
+
+  it('"Use my location" after a timeout starts a new attempt and the first one cannot override it', async () => {
+    const t = await launchHeld('granted');
+    await vi.advanceTimersByTimeAsync(createConfig().locationTimeoutMs);
+    const first = t.location.positionScript.pending[0];
+    t.location.positionScript.release();
+    t.location.positionScript.respondWith(ok({ lat: 7, lon: 8 }));
+    await t.controller.useMyLocation();
+    expect(t.location.positionScript.callCount).toBe(2);
+    expect(first?.aborted).toBe(true);
+    expect(t.store.getState().locationFlow).toEqual({ status: 'idle' });
+    expect(t.store.getState().selectedLocation).toMatchObject({ latitude: 7, longitude: 8 });
+    first?.resolve(coords);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.store.getState().selectedLocation).toMatchObject({ latitude: 7, longitude: 8 });
+  });
+
+  it('a timeout does not disturb a city that is already shown', async () => {
+    vi.useFakeTimers();
+    const t = setup({ permission: 'granted' });
+    await t.controller.chooseCandidate(A);
+    t.location.positionScript.hold();
+    const attempt = t.controller.useMyLocation();
+    await vi.advanceTimersByTimeAsync(createConfig().locationTimeoutMs);
+    await attempt;
+    expect(t.store.getState().locationFlow).toMatchObject({ status: 'error', error: { kind: 'timeout' } });
+    expect(t.store.getState().snapshot?.location.key).toBe(A.key);
   });
 });
 
@@ -184,7 +326,7 @@ describe('stale results are discarded (selection token)', () => {
     const loading = t.controller.chooseCandidate(A);
     await flush();
     await t.controller.searchCity('   ');
-    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { code: 'EMPTY_INPUT' } });
+    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { kind: 'empty_input' } });
     expect(t.geocoding.searchScript.callCount).toBe(0);
     expect(t.weatherProvider.currentScript.calls[0]?.aborted).toBe(false);
     t.weatherProvider.currentScript.pending[0]?.resolve(ok({ temperatureC: 1 }));
@@ -206,7 +348,7 @@ describe('stale results are discarded (selection token)', () => {
     const snap = t.store.getState().snapshot;
     expect(snap?.current.status).not.toBe('loading');
     expect(snap?.forecast.status).not.toBe('loading');
-    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { code: 'SERVICE_UNAVAILABLE' } });
+    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { kind: 'service' } });
   });
 });
 
@@ -234,10 +376,10 @@ describe('search flow', () => {
   it('not found and service errors are shown as search errors', async () => {
     const t = setup();
     await t.controller.searchCity('nowhere');
-    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { code: 'NOT_FOUND' } });
+    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { kind: 'not_found' } });
     t.geocoding.searchScript.respondWith(err(serviceUnavailable()));
     await t.controller.searchCity('x');
-    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { code: 'SERVICE_UNAVAILABLE' } });
+    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { kind: 'service' } });
   });
 });
 
@@ -277,6 +419,16 @@ describe('favorites', () => {
     await t.controller.addFavorite();
     expect(t.store.getState().favorites).toHaveLength(1);
     expect(t.store.getState().favoritesStorageUnavailable).toBe(true);
+  });
+
+  it('unreadable stored favorites set the discarded flag in the store and adding still works (REQ-WF6-06)', async () => {
+    const t = setup({ store: new InMemoryKeyValueStore({ [FAVORITES_STORAGE_KEY]: '{"version":1,"favorites":[]}' }) });
+    await t.controller.start();
+    expect(t.store.getState().favoritesDataDiscarded).toBe(true);
+    expect(t.store.getState().favoritesStorageUnavailable).toBe(false);
+    await t.controller.chooseCandidate(A);
+    await t.controller.addFavorite();
+    expect(t.store.getState().favorites.map((f) => f.key)).toEqual([A.key]);
   });
 
   it('adding with nothing selected posts a message', async () => {
@@ -363,6 +515,64 @@ describe('refresh and settings', () => {
     expect(snapshot?.current.data?.temperatureC).not.toBe(99);
   });
 
+  it('a refresh while a search is pending is ignored (N1, A-Q19)', async () => {
+    const t = setup();
+    await t.controller.chooseCandidate(A);
+    const callsBefore = t.weatherProvider.currentScript.callCount;
+    t.geocoding.searchScript.hold();
+    const searching = t.controller.searchCity('city two');
+    await flush();
+    await t.controller.refresh();
+    expect(t.weatherProvider.currentScript.callCount).toBe(callsBefore);
+    expect(t.weatherProvider.forecastScript.callCount).toBe(callsBefore);
+    t.geocoding.searchScript.release();
+    t.geocoding.searchScript.pending[0]?.resolve(ok([B]));
+    await searching;
+    const snap = t.store.getState().snapshot;
+    expect(snap?.location.key).toBe(B.key);
+    expect(snap?.current.data?.temperatureC).toBe(B.latitude);
+    expect(t.store.getState().selectedLocation?.key).toBe(B.key);
+    // Exactly one load ran for the new city and none for the old one.
+    expect(t.weatherProvider.currentScript.callCount).toBe(callsBefore + 1);
+  });
+
+  it('a refresh works again once a search ends without a new city (error or choice)', async () => {
+    const t = setup();
+    await t.controller.chooseCandidate(A);
+    t.geocoding.searchScript.respondWith(err(serviceUnavailable()));
+    await t.controller.searchCity('zzz');
+    const before = t.weatherProvider.currentScript.callCount;
+    await t.controller.refresh();
+    expect(t.weatherProvider.currentScript.callCount).toBe(before + 1);
+    expect(t.store.getState().snapshot?.location.key).toBe(A.key);
+  });
+
+  it('an old-city refresh that resolves after the new city loaded never overwrites it (DR-18)', async () => {
+    const t = setup();
+    await t.controller.chooseCandidate(A);
+    t.weatherProvider.currentScript.hold();
+    const refreshing = t.controller.refresh();
+    await flush();
+    t.geocoding.searchScript.respondWith(ok([B]));
+    const searching = t.controller.searchCity('city two');
+    await flush();
+    // B's load is the second held call; A's refresh is the first (aborted).
+    const calls = t.weatherProvider.currentScript.calls;
+    const refreshCall = calls.find((c) => c.args[0].key === A.key && c.aborted);
+    const loadB = calls.find((c) => c.args[0].key === B.key);
+    expect(refreshCall).toBeDefined();
+    expect(loadB).toBeDefined();
+    loadB?.resolve(ok({ temperatureC: B.latitude }));
+    await searching;
+    // The old city's refresh finishes last, with data of its own.
+    refreshCall?.resolve(ok({ temperatureC: 99 }));
+    await refreshing;
+    const snap = t.store.getState().snapshot;
+    expect(snap?.location.key).toBe(B.key);
+    expect(snap?.current.data?.temperatureC).toBe(B.latitude);
+    expect(t.store.getState().selectedLocation?.key).toBe(B.key);
+  });
+
   it('the temperature unit is stored and persisted', async () => {
     const t = setup();
     await t.controller.setTemperatureUnit('F');
@@ -413,12 +623,12 @@ describe('review fixes M1, M2, M3, L6', () => {
     const t = setup({ permission: 'granted' });
     await t.controller.chooseCandidate(A);
     const calls = t.weatherProvider.currentScript.callCount;
-    t.location.positionScript.respondWith(err({ code: 'TIMEOUT', messageKey: 'error.timeout' }));
+    t.location.positionScript.respondWith(err(timeoutError()));
     await t.controller.useMyLocation();
     const state = t.store.getState();
     expect(state.selectedLocation?.key).toBe(A.key);
     expect(state.snapshot?.current.data?.temperatureC).toBe(A.latitude);
-    expect(state.locationFlow).toMatchObject({ status: 'error', error: { code: 'TIMEOUT' } });
+    expect(state.locationFlow).toMatchObject({ status: 'error', error: { kind: 'timeout' } });
     expect(t.weatherProvider.currentScript.callCount).toBe(calls);
   });
 
@@ -427,7 +637,7 @@ describe('review fixes M1, M2, M3, L6', () => {
     t.weatherProvider.currentScript.hold();
     const loading = t.controller.chooseCandidate(A);
     await flush();
-    t.location.positionScript.respondWith(err({ code: 'LOCATION_DENIED', messageKey: 'error.locationDenied' }));
+    t.location.positionScript.respondWith(err({ kind: 'permission_denied', messageKey: 'error.locationDenied' }));
     await t.controller.useMyLocation();
     expect(t.weatherProvider.currentScript.calls[0]?.aborted).toBe(false);
     t.weatherProvider.currentScript.pending[0]?.resolve(ok({ temperatureC: 7 }));
@@ -481,6 +691,49 @@ describe('review fixes M1, M2, M3, L6', () => {
     expect(t.weatherProvider.currentScript.callCount).toBe(2);
   });
 
+  it('single-flight (architecture 3.7): a new selection aborts the old load before its own starts; loads never overlap', async () => {
+    const t = setup();
+    t.weatherProvider.currentScript.hold();
+    t.weatherProvider.forecastScript.hold();
+    const loadingA = t.controller.chooseCandidate(A);
+    await flush();
+    const loadingB = t.controller.chooseCandidate(B);
+    await flush();
+    const calls = t.weatherProvider.currentScript.calls;
+    expect(calls.map((c) => c.args[0].key)).toEqual([A.key, B.key]);
+    expect(calls[0]?.aborted).toBe(true); // A released before B ran
+    expect(calls[1]?.aborted).toBe(false);
+    // Only B is active: a refresh joins it instead of starting a third request.
+    await t.controller.refresh();
+    expect(t.weatherProvider.currentScript.callCount).toBe(2);
+    // A answers late: ignored. B answers: applied.
+    calls[0]?.resolve(ok({ temperatureC: 99 }));
+    calls[1]?.resolve(ok({ temperatureC: 7 }));
+    t.weatherProvider.forecastScript.pending.forEach((c) => c.resolve(ok([])));
+    await Promise.all([loadingA, loadingB]);
+    expect(t.store.getState().snapshot?.location.key).toBe(B.key);
+    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(7);
+    // The flag was released: a refresh is a real request again.
+    t.weatherProvider.currentScript.release();
+    t.weatherProvider.forecastScript.release();
+    await t.controller.refresh();
+    expect(t.weatherProvider.currentScript.callCount).toBe(3);
+  });
+
+  it('single-flight: re-selecting the same city while its load is pending does not reuse the aborted request', async () => {
+    const t = setup();
+    t.weatherProvider.currentScript.hold();
+    const first = t.controller.chooseCandidate(A);
+    await flush();
+    const second = t.controller.chooseCandidate(A);
+    await flush();
+    expect(t.weatherProvider.currentScript.callCount).toBe(2);
+    expect(t.weatherProvider.currentScript.calls[0]?.aborted).toBe(true);
+    t.weatherProvider.currentScript.calls[1]?.resolve(ok({ temperatureC: 4 }));
+    await Promise.all([first, second]);
+    expect(t.store.getState().snapshot?.current.data?.temperatureC).toBe(4);
+  });
+
   it('L6: a later successful selection clears an earlier location error', async () => {
     const t = setup({ permission: 'denied' });
     await t.controller.useMyLocation();
@@ -528,7 +781,7 @@ describe('failures never become unhandled rejections', () => {
     t.location.positionScript.failWith(new Error('loc'));
     await expect(t.controller.start()).resolves.toBeUndefined();
     await expect(t.controller.searchCity('x')).resolves.toBeUndefined();
-    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { code: 'SERVICE_UNAVAILABLE' } });
+    expect(t.store.getState().search).toMatchObject({ status: 'error', error: { kind: 'service' } });
     await expect(t.controller.chooseCandidate(A)).resolves.toBeUndefined();
     await expect(t.controller.useMyLocation()).resolves.toBeUndefined();
     await expect(t.controller.refresh()).resolves.toBeUndefined();
@@ -536,7 +789,7 @@ describe('failures never become unhandled rejections', () => {
     await expect(t.controller.selectFavorite(A.key)).resolves.toBeUndefined();
     await expect(t.controller.removeFavorite(A.key)).resolves.toBeUndefined();
     await expect(t.controller.setTemperatureUnit('F')).resolves.toBeUndefined();
-    expect(t.store.getState().snapshot?.current.error?.code).toBe('SERVICE_UNAVAILABLE');
+    expect(t.store.getState().snapshot?.current.error?.kind).toBe('service');
   });
 
   it('a superseded search or locate leaves no stuck "in progress" state', async () => {

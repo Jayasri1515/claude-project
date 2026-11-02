@@ -58,6 +58,7 @@ export function FavoritesPanel() {
       {availability === 'needs-named-place' ? <p className="note">{message('ui.favoriteNeedsName')}</p> : null}
 
       <LiveMessage className="favorites-notice">
+        {state.favoritesDataDiscarded ? <p className="note">{message('ui.favorites.corrupted')}</p> : null}
         {state.favoritesStorageUnavailable ? <p className="note">{message('error.storageUnavailable')}</p> : null}
       </LiveMessage>
 

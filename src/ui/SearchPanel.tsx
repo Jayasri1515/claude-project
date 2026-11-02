@@ -14,14 +14,29 @@
  * pulled back. Choosing a candidate moves focus to the current-weather heading
  * at once, because the chooser (and the pressed button) disappears.
  */
-import { useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import type { AppError } from '../core/errors';
 import { messageForError, message } from '../core/messages';
 import { useUi, useViewState } from './context';
 import { formatPlace } from './formatPlace';
 import { LiveMessage } from './LiveMessage';
+import { PickListCredit } from './PickListCredit';
 import { focusById, focusIsLost, SECTIONS } from './sections';
+import { unavailable, useGuardedAction } from './useGuardedAction';
 import type { Location } from '../core/domain';
+
+/**
+ * Failures where trying the same text again can help, so the Retry control (M-34, REQ-WF1-05) is offered. A text the
+ * user must change (nothing found, empty or too long) is not retried.
+ */
+const RETRYABLE_SEARCH_ERRORS: ReadonlySet<AppError['kind']> = new Set([
+  'service',
+  'network',
+  'rate_limited',
+  'timeout',
+  'invalid_response',
+]);
 
 export function SearchPanel() {
   const { controller } = useUi();
@@ -30,6 +45,9 @@ export function SearchPanel() {
   const chooseHeadingId = useId();
   const [text, setText] = useState('');
   const panelRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  /** The text of the last submitted search (trimmed, as the search service reads it), for Retry. */
+  const lastSubmitted = useRef('');
   const chooseHeadingRef = useRef<HTMLHeadingElement>(null);
   /** True from a submit until its outcome (or a newer state) has been handled. */
   const awaitingOutcome = useRef(false);
@@ -47,8 +65,21 @@ export function SearchPanel() {
   const onSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     awaitingOutcome.current = true;
+    lastSubmitted.current = text.trim();
     void controller.searchCity(text);
   };
+
+  // Retry re-submits the last text through a guarded action, so a second activation while it runs is ignored.
+  const retry = useGuardedAction(useCallback(() => controller.searchCity(lastSubmitted.current), [controller]));
+  const onRetry = (): void => {
+    if (retry.pending) return;
+    // The Retry button disappears while the search runs: keep focus in the search form, where the outcome is found.
+    inputRef.current?.focus();
+    awaitingOutcome.current = true;
+    retry.run();
+  };
+  // A retryable error can only follow a submitted search, so there is always a last text to send.
+  const canRetry = search.status === 'error' && RETRYABLE_SEARCH_ERRORS.has(search.error.kind);
 
   const onChoose = (candidate: Location): void => {
     focusById(SECTIONS.current.headingId);
@@ -61,6 +92,7 @@ export function SearchPanel() {
         <label htmlFor={inputId}>{message('ui.search.label')}</label>
         <input
           id={inputId}
+          ref={inputRef}
           type="text"
           value={text}
           autoComplete="off"
@@ -71,6 +103,11 @@ export function SearchPanel() {
       <LiveMessage className="search-status">
         {search.status === 'error' ? <p className="error-text">{messageForError(search.error)}</p> : null}
       </LiveMessage>
+      {canRetry ? (
+        <button type="button" className="search-retry" onClick={onRetry} {...unavailable(retry.pending)}>
+          {message('ui.retry')}
+        </button>
+      ) : null}
       {search.status === 'choose' ? (
         <div className="candidates" role="group" aria-labelledby={chooseHeadingId}>
           <h3 id={chooseHeadingId} ref={chooseHeadingRef} tabIndex={-1}>
@@ -85,6 +122,7 @@ export function SearchPanel() {
               </li>
             ))}
           </ul>
+          <PickListCredit />
         </div>
       ) : null}
     </div>

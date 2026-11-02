@@ -6,10 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compose, composeLive, liveAttributionText } from '../../src/composition';
 import { createConfig } from '../../src/core/config';
 import { serviceUnavailable } from '../../src/core/errors';
-import { composeDemo } from '../../src/dev/demoComposition';
 import { App } from '../../src/ui/App';
 import { ATTRIBUTION_URLS, splitAttribution, THIRD_PARTY_NOTICES_PATH } from '../../src/ui/attribution';
-import { FakeLocationService, InMemoryKeyValueStore } from '../fakes';
+import { LegacyFakeLocationService, InMemoryKeyValueStore } from '../fakes';
 import { sampleSnapshot } from '../fixtures/domain';
 import { fixtureResponse, jsonResponse, stubFetch } from '../support/openMeteo';
 import type { RecordedCall } from '../support/openMeteo';
@@ -25,6 +24,9 @@ afterEach(() => {
 });
 
 const CREDIT = 'Weather data by Open-Meteo.com. Location data based on GeoNames.';
+// M-24, footer Option A, copied from message-wording.md (approved 2026-10-30), not from the message table.
+const PRIVACY =
+  'The city you search for and your device location (rounded to two decimal places) are sent to Open-Meteo to get the weather, along with your IP address. Open-Meteo keeps server logs that may contain coordinates for 90 days. This app does not save your device location and collects no other data: there are no analytics, cookies or tracking. Favorites and your unit choice stay on this device.';
 const footer = () => screen.getByRole('contentinfo');
 const links = () => within(footer()).getAllByRole('link');
 
@@ -38,8 +40,8 @@ function route(call: RecordedCall): Response {
 
 function renderLive(respond: (call: RecordedCall) => Response | Promise<Response> = route) {
   const stub = stubFetch(respond);
-  const c = composeLive({ fetch: stub.fetch, keyValueStore: new InMemoryKeyValueStore(), locationService: new FakeLocationService('prompt') });
-  const view = render(<App store={c.store} controller={c.controller} config={c.config} demo={c.demo} unconfigured={c.unconfigured} />);
+  const c = composeLive({ fetch: stub.fetch, keyValueStore: new InMemoryKeyValueStore(), locationService: new LegacyFakeLocationService('prompt') });
+  const view = render(<App store={c.store} controller={c.controller} config={c.config} unconfigured={c.unconfigured} />);
   return { ...c, ...stub, ...view };
 }
 
@@ -94,6 +96,7 @@ describe('live mode: the footer shows the credit with working, safe links', () =
     clone.querySelectorAll('.visually-hidden').forEach((hint) => hint.remove());
     const paragraphs = Array.from(clone.querySelectorAll('p')).map((p) => p.textContent);
     expect(paragraphs).toEqual([
+      PRIVACY,
       CREDIT,
       'Data licence: CC BY 4.0. Changes: values are rounded and conditions are simplified.',
       'Third-party notices',
@@ -237,27 +240,55 @@ describe('live mode: the footer shows the credit with working, safe links', () =
   });
 });
 
-describe('no credit configured, demo and not-set-up modes', () => {
+describe('privacy disclosure (M-24, footer Option A, T-05 condition)', () => {
+  it('the footer shows the approved text exactly, as one visible paragraph', () => {
+    renderLive();
+    const shown = within(footer()).getByText(PRIVACY);
+    expect(shown.tagName).toBe('P');
+    expect(shown.closest('[hidden], [aria-hidden="true"], .visually-hidden')).toBeNull();
+    expect(screen.getAllByText(PRIVACY)).toHaveLength(1);
+  });
+
+  it('it states what is sent, the 90-day log retention and that nothing else is collected', () => {
+    expect(PRIVACY).toMatch(/sent to Open-Meteo/);
+    expect(PRIVACY).toMatch(/IP address/);
+    expect(PRIVACY).toMatch(/server logs that may contain coordinates for 90 days/);
+    expect(PRIVACY).toMatch(/no analytics, cookies or tracking/);
+  });
+
+  it('it is shown even when no credit is configured', () => {
+    renderWithFakeController({}, createConfig({ attributionText: '' }));
+    expect(within(footer()).getByText(PRIVACY)).toBeTruthy();
+  });
+
+  it('the "Use my location" button does not repeat the whole disclosure on every focus (no aria-describedby)', () => {
+    renderLive();
+    expect(screen.getByRole('button', { name: 'Use my location' }).getAttribute('aria-describedby')).toBeNull();
+    expect(footer().textContent).toContain(PRIVACY);
+  });
+
+  it('the approved "two decimal places" wording matches Config.coordinateDecimals (M-24 cannot drift silently)', () => {
+    expect(PRIVACY).toContain('rounded to two decimal places');
+    expect(createConfig().coordinateDecimals).toBe(2);
+  });
+
+  it('it is not shown on the not-set-up page, which sends nothing', () => {
+    const none = compose({ keyValueStore: new InMemoryKeyValueStore() });
+    render(<App store={none.store} controller={none.controller} config={createConfig()} unconfigured />);
+    expect(screen.queryByText(PRIVACY)).toBeNull();
+  });
+});
+
+describe('no credit configured and not-set-up modes', () => {
   it('an empty attributionText shows no credit and no licence line; only the notices link remains', () => {
     renderWithFakeController();
     expect(links().map((l) => l.getAttribute('href'))).toEqual(['THIRD_PARTY_NOTICES.txt']);
-    expect(footer().textContent).not.toMatch(/Open-Meteo|GeoNames|CC BY/);
+    expect(footer().textContent).not.toMatch(/Weather data by|GeoNames|CC BY/);
   });
 
   it('a blank attributionText counts as empty', () => {
     renderWithFakeController({}, createConfig({ attributionText: '   ' }));
-    expect(footer().textContent).not.toMatch(/Open-Meteo|GeoNames|CC BY/);
-  });
-
-  it('demo mode never claims Open-Meteo or GeoNames data, even if a credit text is configured', () => {
-    const demo = composeDemo({ keyValueStore: new InMemoryKeyValueStore(), config: createConfig({ attributionText: CREDIT }) });
-    render(<App store={demo.store} controller={demo.controller} config={demo.config} demo />);
-    const text = footer().textContent ?? '';
-    expect(text).toContain('Demo mode: the data shown is made-up sample data. It is not from Open-Meteo or GeoNames.');
-    expect(within(footer()).queryByRole('link', { name: /Weather data by/ })).toBeNull();
-    expect(within(footer()).queryByRole('link', { name: /GeoNames/ })).toBeNull();
-    expect(links().map((l) => l.getAttribute('href'))).toEqual(['THIRD_PARTY_NOTICES.txt']);
-    expect(text).not.toContain('Weather data by');
+    expect(footer().textContent).not.toMatch(/Weather data by|GeoNames|CC BY/);
   });
 
   it('the not-set-up page shows no data and so no credit and no footer', () => {
@@ -372,18 +403,6 @@ describe('credit next to the data, inside the weather panels (Open-Meteo licence
     expect(screen.queryAllByRole('link', { name: /Open-Meteo/ })).toHaveLength(0);
   });
 
-  it('demo mode shows weather but no Open-Meteo link anywhere except the notices link in the footer', async () => {
-    const user = userEvent.setup();
-    const demo = composeDemo({ keyValueStore: new InMemoryKeyValueStore(), config: createConfig({ attributionText: CREDIT }) });
-    render(<App store={demo.store} controller={demo.controller} config={demo.config} demo />);
-    await user.type(screen.getByLabelText('City name'), 'Testville{Enter}');
-    await screen.findByText('Temperature');
-    await waitFor(() => expect(region('Forecast').querySelectorAll('svg.weather-icon').length).toBeGreaterThan(0));
-    expect(panelCredits('Current weather')).toHaveLength(0);
-    expect(panelCredits('Forecast')).toHaveLength(0);
-    expect(screen.queryAllByRole('link').filter((l) => /open-meteo/i.test(l.getAttribute('href') ?? '') || /Open-Meteo/.test(l.textContent ?? ''))).toHaveLength(0);
-  });
-
   it('the not-set-up page has no weather panels and so no credit', () => {
     const none = compose({ keyValueStore: new InMemoryKeyValueStore() });
     render(<App store={none.store} controller={none.controller} config={liveConfig} unconfigured />);
@@ -446,12 +465,8 @@ describe('structure and accessibility (axe)', () => {
     expect(await violations()).toEqual([]);
   });
 
-  it('footer with no credit, and demo footer, have no axe violations', async () => {
+  it('footer with no credit has no axe violations', async () => {
     renderWithFakeController({ snapshot: sampleSnapshot });
-    expect(await violations()).toEqual([]);
-    cleanup();
-    const demo = composeDemo({ keyValueStore: new InMemoryKeyValueStore() });
-    render(<App store={demo.store} controller={demo.controller} config={demo.config} demo />);
     expect(await violations()).toEqual([]);
   });
 });

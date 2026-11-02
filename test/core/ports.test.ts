@@ -4,11 +4,11 @@ import type { AppError } from '../../src/core/errors';
 import { ABORTED, isAborted } from '../../src/core/ports';
 import type {
   Clock,
-  GeocodingProvider,
+  LegacyGeocodingProvider,
   KeyValueStore,
-  LocationService,
+  LegacyLocationService,
   PositionResult,
-  WeatherProvider,
+  LegacyWeatherProvider,
 } from '../../src/core/ports';
 import { err, ok } from '../../src/core/result';
 import { sampleCurrent, sampleForecast, sampleLocation } from '../fixtures/domain';
@@ -19,11 +19,11 @@ import { sampleCurrent, sampleForecast, sampleLocation } from '../fixtures/domai
  * real assertion; the runtime expectations just exercise the shapes.
  */
 describe('port interfaces', () => {
-  it('GeocodingProvider: reverse is optional', async () => {
-    const withoutReverse: GeocodingProvider = {
+  it('LegacyGeocodingProvider: reverse is optional', async () => {
+    const withoutReverse: LegacyGeocodingProvider = {
       search: async () => ok([sampleLocation]),
     };
-    const withReverse: GeocodingProvider = {
+    const withReverse: LegacyGeocodingProvider = {
       search: async () => err(notFound()),
       reverse: async () => ok(sampleLocation),
     };
@@ -32,8 +32,8 @@ describe('port interfaces', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('WeatherProvider has getCurrent and getForecast with abort signal', async () => {
-    const wp: WeatherProvider = {
+  it('LegacyWeatherProvider has getCurrent and getForecast with abort signal', async () => {
+    const wp: LegacyWeatherProvider = {
       getCurrent: async () => ok(sampleCurrent),
       getForecast: async (_loc, days, includeToday) =>
         ok(includeToday ? sampleForecast : sampleForecast.slice(0, days)),
@@ -44,19 +44,19 @@ describe('port interfaces', () => {
     expect(cur.ok && fc.ok && fc.value.length).toBe(2);
   });
 
-  it('LocationService exposes the four permission states and typed position result', async () => {
-    const ls: LocationService = {
+  it('LegacyLocationService exposes the permission states and typed position result, with no timeout argument', async () => {
+    const ls: LegacyLocationService = {
       getPermissionState: async () => 'prompt',
       getCurrentPosition: async () => ok({ lat: 1, lon: 2 }),
     };
     expect(await ls.getPermissionState()).toBe('prompt');
-    const pos = await ls.getCurrentPosition(1000, new AbortController().signal);
+    const pos = await ls.getCurrentPosition(new AbortController().signal);
     expect(pos.ok && pos.value).toEqual({ lat: 1, lon: 2 });
   });
 
-  it('GeocodingProvider accepts an optional AbortSignal on search and reverse', async () => {
+  it('LegacyGeocodingProvider accepts an optional AbortSignal on search and reverse', async () => {
     const seen: Array<AbortSignal | undefined> = [];
-    const gp: GeocodingProvider = {
+    const gp: LegacyGeocodingProvider = {
       search: async (_q, _limit, signal) => {
         seen.push(signal);
         return ok([sampleLocation]);
@@ -74,25 +74,25 @@ describe('port interfaces', () => {
     expect(seen).toEqual([undefined, ac.signal, undefined, ac.signal]);
   });
 
-  it('LocationService: an aborted request resolves to the documented ABORTED variant', async () => {
+  it('LegacyLocationService: an aborted request resolves to the documented ABORTED variant', async () => {
     // Reference behavior: settle with ABORTED when the signal aborts, never hang.
-    const ls: LocationService = {
+    const ls: LegacyLocationService = {
       getPermissionState: async () => 'granted',
-      getCurrentPosition: (_timeoutMs, signal) =>
+      getCurrentPosition: (signal) =>
         new Promise<PositionResult>((resolve) => {
           if (signal.aborted) return resolve(ABORTED);
           signal.addEventListener('abort', () => resolve(ABORTED), { once: true });
         }),
     };
     const ac = new AbortController();
-    const pending = ls.getCurrentPosition(1000, ac.signal);
+    const pending = ls.getCurrentPosition(ac.signal);
     ac.abort();
     const result = await pending;
     expect(isAborted(result)).toBe(true);
     expect(result).toEqual({ ok: false, aborted: true });
 
     // Already-aborted signal also settles.
-    expect(isAborted(await ls.getCurrentPosition(1000, ac.signal))).toBe(true);
+    expect(isAborted(await ls.getCurrentPosition(ac.signal))).toBe(true);
   });
 
   it('isAborted distinguishes success, typed failure and abort', () => {
@@ -102,7 +102,7 @@ describe('port interfaces', () => {
     expect(isAborted(failure)).toBe(false);
     expect(isAborted(ABORTED)).toBe(true);
     if (!isAborted(failure) && !failure.ok) {
-      expect(failure.error.code).toBe('NOT_FOUND');
+      expect(failure.error.kind).toBe('not_found');
     }
   });
 
@@ -134,6 +134,6 @@ describe('port interfaces', () => {
 
   it('error type flows through Result', () => {
     const e: AppError = notFound();
-    expect(err(e).error.code).toBe('NOT_FOUND');
+    expect(err(e).error.kind).toBe('not_found');
   });
 });

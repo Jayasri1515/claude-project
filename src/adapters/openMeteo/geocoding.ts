@@ -1,5 +1,5 @@
 /**
- * GeocodingProvider.search over the Open-Meteo Geocoding API (TASK-022).
+ * LegacyGeocodingProvider.search over the Open-Meteo Geocoding API (TASK-022).
  *
  * Endpoint, parameters and response shape were checked against the official
  * documentation on 2026-10-27 (https://open-meteo.com/en/docs/geocoding-api; see
@@ -18,11 +18,12 @@
  * coordinates is skipped, an unexpected top-level shape is a service failure.
  * Provider text is only ever returned as data (the UI renders it as text).
  */
+import { MAX_SEARCH_RESULT_LIMIT } from '../../core/config';
 import type { Location } from '../../core/domain';
-import { serviceUnavailable } from '../../core/errors';
+import { invalidResponse, serviceUnavailable } from '../../core/errors';
 import type { AppError } from '../../core/errors';
 import { makeLocationKey } from '../../core/favorites/identity';
-import type { GeocodingProvider } from '../../core/ports';
+import type { LegacyGeocodingProvider } from '../../core/ports';
 import { err, ok } from '../../core/result';
 import type { Result } from '../../core/result';
 import { defaultFetch, finiteNumber, getJson, isRecord, nonEmptyString } from './http';
@@ -31,8 +32,6 @@ import type { FetchLike, OpenMeteoOptions } from './http';
 export const GEOCODING_SEARCH_URL = 'https://geocoding-api.open-meteo.com/v1/search';
 /** Identifies this provider in `Location.key` ("open-meteo:<id>"). */
 export const PROVIDER_ID = 'open-meteo';
-/** Documented maximum for `count`. */
-const MAX_COUNT = 100;
 
 export function parseGeocodingResult(raw: unknown): Location | undefined {
   if (!isRecord(raw)) return undefined;
@@ -51,9 +50,7 @@ export function parseGeocodingResult(raw: unknown): Location | undefined {
 
   return {
     key: makeLocationKey({
-      providerId: PROVIDER_ID,
       name,
-      ...(placeId !== undefined ? { placeId } : {}),
       ...(admin1 !== undefined ? { admin1 } : {}),
       ...(country !== undefined ? { country } : {}),
     }),
@@ -68,7 +65,7 @@ export function parseGeocodingResult(raw: unknown): Location | undefined {
   };
 }
 
-export class OpenMeteoGeocodingProvider implements GeocodingProvider {
+export class OpenMeteoGeocodingProvider implements LegacyGeocodingProvider {
   private readonly fetchFn: FetchLike;
   private readonly timeoutMs: number | undefined;
 
@@ -79,7 +76,7 @@ export class OpenMeteoGeocodingProvider implements GeocodingProvider {
 
   async search(query: string, limit: number, signal?: AbortSignal): Promise<Result<Location[], AppError>> {
     try {
-      const count = Number.isFinite(limit) ? Math.min(MAX_COUNT, Math.max(1, Math.trunc(limit))) : MAX_COUNT;
+      const count = Number.isFinite(limit) ? Math.min(MAX_SEARCH_RESULT_LIMIT, Math.max(1, Math.trunc(limit))) : MAX_SEARCH_RESULT_LIMIT;
       const url = new URL(GEOCODING_SEARCH_URL);
       url.searchParams.set('name', query);
       url.searchParams.set('count', String(count));
@@ -90,10 +87,11 @@ export class OpenMeteoGeocodingProvider implements GeocodingProvider {
       if (!response.ok) return response;
 
       const body = response.value;
-      if (!isRecord(body) || body['error'] === true) return err(serviceUnavailable());
+      if (!isRecord(body)) return err(invalidResponse());
+      if (body['error'] === true) return err(serviceUnavailable());
       const results = body['results'];
       if (results === undefined) return ok([]); // documented: no match means no `results` key
-      if (!Array.isArray(results)) return err(serviceUnavailable());
+      if (!Array.isArray(results)) return err(invalidResponse());
 
       const locations: Location[] = [];
       for (const entry of results as unknown[]) {

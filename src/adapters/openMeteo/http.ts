@@ -7,20 +7,20 @@
  * text is carried into the error (NFR-006). Nothing is logged.
  *
  * Request shape: a plain GET with no custom headers, so a browser sends a CORS
- * "simple" request and needs no preflight. Credentials are never sent, and `referrerPolicy: 'no-referrer'` keeps the
- * page address out of the Referer header.
+ * "simple" request and needs no preflight. Credentials are never sent, `referrerPolicy: 'no-referrer'` keeps the
+ * page address out of the Referer header, and `cache: 'no-store'` keeps the HTTP cache out of the loop (R10).
  *
  * Failure mapping:
  * - fetch rejects (offline, DNS, blocked): NETWORK
- * - HTTP status outside 200-299 (400 error bodies, 429 rate limit, 5xx): SERVICE_UNAVAILABLE
+ * - HTTP 429: RATE_LIMITED (architecture 5.4; the status code is an assumption, provider-verification.md item 2)
+ * - any other HTTP status outside 200-299 (400 error bodies, 5xx): SERVICE_UNAVAILABLE
  * - body is not valid JSON: SERVICE_UNAVAILABLE
  * - timeout (when `timeoutMs` is set): TIMEOUT
- * - the caller aborts: SERVICE_UNAVAILABLE. The caller asked for the abort and
- *   discards the outcome (the Search and Weather services check their own
- *   signal), so this value is never shown.
+ * - the caller aborts: ABORTED (DR-09). This is the internal outcome, never shown and never mapped to a message;
+ *   a caller that asked for the abort discards it.
  * There is no automatic retry (architecture ODD-4).
  */
-import { networkError, serviceUnavailable, timeoutError } from '../../core/errors';
+import { aborted, invalidResponse, networkError, rateLimited, serviceUnavailable, timeoutError } from '../../core/errors';
 import type { AppError } from '../../core/errors';
 import { err, ok } from '../../core/result';
 import type { Result } from '../../core/result';
@@ -38,6 +38,7 @@ export interface OpenMeteoOptions {
 type Outcome =
   | { readonly kind: 'ok'; readonly value: unknown }
   | { readonly kind: 'http' }
+  | { readonly kind: 'rate_limited' }
   | { readonly kind: 'malformed' }
   | { readonly kind: 'network' }
   | { readonly kind: 'aborted' };
@@ -50,7 +51,7 @@ export async function getJson(
   options: { readonly fetch: FetchLike; readonly timeoutMs?: number | undefined; readonly signal?: AbortSignal | undefined },
 ): Promise<Result<unknown, AppError>> {
   const { signal, timeoutMs } = options;
-  if (signal?.aborted === true) return err(serviceUnavailable());
+  if (signal?.aborted === true) return err(aborted());
 
   const own = new AbortController();
   let timedOut = false;
@@ -74,16 +75,20 @@ export async function getJson(
     try {
       // No `headers` on purpose (a custom header would trigger a CORS preflight). `referrerPolicy` is a request
       // option, not a header the page adds: it only stops the browser sending this page's address as Referer.
+      // `cache: 'no-store'` (architecture 3.9, R10) is also a request option, not an author-set header: the browser
+      // neither serves this request from its HTTP cache nor stores the response, so stale weather is never shown as
+      // fresh. The geocoding host sends `cache-control: public, max-age=86400`, so the option is needed there too.
       response = await options.fetch(url, {
         method: 'GET',
         signal: own.signal,
         credentials: 'omit',
         referrerPolicy: 'no-referrer',
+        cache: 'no-store',
       });
     } catch {
       return own.signal.aborted ? { kind: 'aborted' } : { kind: 'network' };
     }
-    if (!response.ok) return { kind: 'http' };
+    if (!response.ok) return response.status === 429 ? { kind: 'rate_limited' } : { kind: 'http' };
     try {
       return { kind: 'ok', value: (await response.json()) as unknown };
     } catch {
@@ -99,9 +104,12 @@ export async function getJson(
       case 'network':
         return err(networkError());
       case 'aborted':
-        return err(timedOut ? timeoutError() : serviceUnavailable());
-      case 'http':
+        return err(timedOut ? timeoutError() : aborted());
+      case 'rate_limited':
+        return err(rateLimited());
       case 'malformed':
+        return err(invalidResponse());
+      case 'http':
       default:
         return err(serviceUnavailable());
     }

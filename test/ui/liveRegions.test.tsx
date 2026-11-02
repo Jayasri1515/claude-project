@@ -34,12 +34,12 @@ describe('one announced source for loading text', () => {
     expect(within(screen.getByRole('region', { name: 'Status' })).getByText('Searching...')).toBeTruthy();
   });
 
-  it('"Finding your location..." is rendered exactly once, in the status area', async () => {
+  it('"Detecting your location..." is rendered exactly once, in the status area', async () => {
     const user = userEvent.setup();
     const t = renderStack({ permission: 'prompt' });
     t.location.positionScript.hold();
     await user.click(screen.getByRole('button', { name: 'Use my location' }));
-    expect(screen.getAllByText('Finding your location...')).toHaveLength(1);
+    expect(screen.getAllByText('Detecting your location...')).toHaveLength(1);
   });
 });
 

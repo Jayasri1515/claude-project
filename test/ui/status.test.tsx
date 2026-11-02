@@ -2,8 +2,8 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { APP_ERROR_CODES, appError } from '../../src/core/errors';
-import { message, messageForError } from '../../src/core/messages';
+import { PRESENTABLE_ERROR_KINDS, appError } from '../../src/core/errors';
+import { message } from '../../src/core/messages';
 import { createConfig } from '../../src/core/config';
 import { createInitialState, ViewStateStore } from '../../src/core/store';
 import { ok } from '../../src/core/result';
@@ -39,13 +39,13 @@ describe('Status area and loading states (TASK-034)', () => {
   });
 
   // The indicator is derived from state and rendered in the same pass as the selection, so it
-  // appears at 0 ms whatever loadingIndicatorMaxDelayMs is. The strictest honest assertion is
+  // appears at 0 ms (Config has no loading-indicator delay). The strictest honest assertion is
   // therefore "visible with NO timer advanced" (this also satisfies every configured maximum,
   // and fails if a deferral such as a setTimeout before showing it is introduced). Measured on
   // the fake clock; this is not a measurement of real latency (NFR-004 stays TBD, TASK-042).
   it('the loading indicator is on screen immediately after the selection, before any fake time passes', async () => {
     vi.useFakeTimers();
-    const t = renderStack({ config: createConfig({ loadingIndicatorMaxDelayMs: 200 }) });
+    const t = renderStack({ config: createConfig() });
     t.weather.currentScript.hold();
     t.weather.forecastScript.hold();
     const indicatorShown = (): boolean =>
@@ -75,7 +75,7 @@ describe('Status area and loading states (TASK-034)', () => {
     act(() => {
       void t.controller.useMyLocation();
     });
-    expect(within(statusArea()).queryByText('Finding your location...')).not.toBeNull();
+    expect(within(statusArea()).queryByText('Detecting your location...')).not.toBeNull();
     act(() => {
       void t.controller.searchCity('Oslo');
     });
@@ -97,9 +97,9 @@ describe('Status area and loading states (TASK-034)', () => {
   // Real rendering paths: each error code is pushed through every component that
   // can show an AppError. The error object is given extra fields that must never
   // appear, so only the message-table text can reach the page.
-  describe.each(APP_ERROR_CODES)('error %s', (code) => {
+  describe.each(PRESENTABLE_ERROR_KINDS)('error %s', (code) => {
     const hostile = { ...appError(code), detail: 'SECRET-DETAIL', stack: 'at SECRET-STACK', url: 'https://example.invalid/?key=zzz' };
-    const text = messageForError(appError(code));
+    const text = message(appError(code).messageKey);
     const noLeak = (): void => {
       for (const forbidden of ['SECRET-DETAIL', 'SECRET-STACK', 'example.invalid', 'key=zzz']) {
         expect(document.body.textContent).not.toContain(forbidden);
@@ -162,7 +162,7 @@ describe('Error boundary (TASK-034)', () => {
       </ErrorBoundary>,
     );
     const alert = screen.getByRole('alert');
-    expect(alert.textContent).toContain(message('ui.unexpectedError'));
+    expect(alert.textContent).toContain(message('ui.errorBoundary'));
     expect(document.body.textContent).not.toContain('SECRET');
     expect(document.body.textContent).not.toContain('apikey');
     broken = false;
@@ -180,7 +180,7 @@ describe('Error boundary (TASK-034)', () => {
     act(() => {
       store.setState({ temperatureUnit: 'F' });
     });
-    expect(screen.getByRole('alert').textContent).toContain(message('ui.unexpectedError'));
+    expect(screen.getByRole('alert').textContent).toContain(message('ui.errorBoundary'));
     expect(document.body.textContent).not.toContain('SECRET');
   });
 });

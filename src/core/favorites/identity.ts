@@ -1,26 +1,19 @@
 /**
- * Location identity (architecture 3 and 4.7, ODD-7, F-003).
+ * Location identity (architecture 3.4, DR-15; impl-plan T-22).
  *
- * The key is the favorites de-duplication identity:
- * - "<providerId>:<placeId>" when the provider supplied a place ID;
- * - otherwise "name:<name>|<admin1>|<country>" where each part is normalized
- *   (Unicode NFC, trimmed, inner whitespace collapsed, case folded). A missing
- *   admin region or country is an empty part.
+ * One deterministic, provider-independent rule: the key is the lower-cased, trimmed, whitespace-collapsed
+ * "name|admin1|country" (Unicode NFC; a missing part is an empty string). The provider's place ID is NOT part of the
+ * key (the provider does not guarantee a stable ID, provider-verification item 6); it is stored for information only.
  *
- * Coordinates are never part of the key and are never compared, so two nearby
- * places with different names stay distinct and no rounding boundary exists.
+ * Coordinates are never part of the key and are never compared, so two nearby places with different names stay
+ * distinct and no rounding boundary exists.
  *
- * Documented limits (accepted by the architecture): replacing the provider
- * changes the prefix of stored keys; two places with identical name, region and
- * country and no place ID are treated as one. Inside a part, "|" and "\" are
- * escaped with a backslash, so keys of names without them are unchanged and a
- * "|" in a name cannot make two different places collide.
+ * Known limit (architecture 3.4): two distinct places with the same name, region and country are duplicates. Inside a
+ * part, "|" and "\" are escaped with a backslash, so keys of names without them are unchanged and a "|" in a name
+ * cannot make two different places collide.
  */
 
 export interface LocationKeyInput {
-  /** Stable identifier of the geocoding provider that issued `placeId`. */
-  readonly providerId: string;
-  readonly placeId?: string;
   readonly name: string;
   readonly admin1?: string;
   readonly country?: string;
@@ -33,12 +26,7 @@ export function normalizeNamePart(value: string | undefined): string {
 }
 
 export function makeLocationKey(input: LocationKeyInput): string {
-  const placeId = input.placeId?.trim();
-  if (placeId !== undefined && placeId !== '') {
-    return `${input.providerId}:${placeId}`;
-  }
-  const parts = [input.name, input.admin1, input.country].map((p) => escapeKeyPart(normalizeNamePart(p)));
-  return `name:${parts.join('|')}`;
+  return [input.name, input.admin1, input.country].map((p) => escapeKeyPart(normalizeNamePart(p))).join('|');
 }
 
 /** Escape the separator and the escape character so a "|" in a name cannot shift parts. */

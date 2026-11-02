@@ -10,13 +10,14 @@
  * section heading first, because the error block (and the button) is replaced
  * by the loading state (NFR-003).
  */
-import { formatDataFrom, formatHumidity, formatTemperature } from '../core/format';
-import { message, messageForError } from '../core/messages';
+import { formatHumidity, formatTemperature } from '../core/format';
+import { message } from '../core/messages';
 import { useRefreshAction, useViewState } from './context';
 import { ConditionView } from './ConditionView';
 import { formatPlace } from './formatPlace';
 import { LiveMessage } from './LiveMessage';
 import { focusById, SECTIONS } from './sections';
+import { sectionFailureText } from './sectionFailure';
 import { unavailable } from './useGuardedAction';
 import { WeatherCredit } from './WeatherCredit';
 
@@ -36,6 +37,7 @@ export function CurrentWeatherCard() {
   const data = section.data;
   const loading = section.status === 'loading';
   const failed = section.status === 'error' && section.error !== undefined;
+  const failure = sectionFailureText(section, snapshot.forecast, 'ui.current.loadFailed');
 
   const onRetry = (): void => {
     if (refresh.pending) return;
@@ -63,7 +65,7 @@ export function CurrentWeatherCard() {
           <div>
             <dt>{message('ui.label.condition')}</dt>
             <dd>
-              <ConditionView condition={data.condition} text={data.conditionText} />
+              <ConditionView condition={data.condition} text={data.conditionText} surface="current" isDay={data.isDay} />
             </dd>
           </div>
         </dl>
@@ -71,12 +73,10 @@ export function CurrentWeatherCard() {
       {data !== undefined && loading ? <p className="note">{message('ui.current.updating')}</p> : null}
       <WeatherCredit showing={data !== undefined} />
       <LiveMessage className="section-status">
-        {failed && section.error !== undefined ? (
+        {failure !== undefined ? (
           <>
-            <p className="error-text">{messageForError(section.error)}</p>
-            {data !== undefined && section.updatedAt !== undefined ? (
-              <p className="note">{formatDataFrom(section.updatedAt)}</p>
-            ) : null}
+            {failure.staleNote !== undefined ? <p className="note">{failure.staleNote}</p> : null}
+            <p className="error-text">{failure.text}</p>
           </>
         ) : null}
       </LiveMessage>

@@ -50,6 +50,9 @@ export const SECTION_ORDER: readonly SectionDef[] = [
 
 export const APP_TITLE_ID = 'app-title';
 
+/** DOM id of the footer privacy disclosure (M-24). */
+export const PRIVACY_DISCLOSURE_ID = 'privacy-disclosure';
+
 /** Move focus to the element with this id. Returns true when it now has focus. */
 export function focusById(id: string): boolean {
   const element = document.getElementById(id);

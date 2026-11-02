@@ -11,14 +11,14 @@ const A = city(1, { name: 'Alpha', admin1: 'Region A', country: 'Land A' });
 const B = city(2, { name: 'Beta', admin1: 'Region B', country: 'Land B' });
 const favorites = () => screen.getByRole('region', { name: 'Favorites' });
 const current = () => screen.getByRole('region', { name: 'Current weather' });
-const stored = (kv: InMemoryKeyValueStore): { favorites: Array<{ key: string }> } =>
-  JSON.parse(kv.data.get(FAVORITES_STORAGE_KEY) ?? '{"favorites":[]}') as { favorites: Array<{ key: string }> };
+const stored = (kv: InMemoryKeyValueStore): { items: Array<{ key: string }> } =>
+  JSON.parse(kv.data.get(FAVORITES_STORAGE_KEY) ?? '{"items":[]}') as { items: Array<{ key: string }> };
 
 describe('Favorites UI (TASK-031)', () => {
   it('offers no add control before a city is shown', () => {
     renderWithFakeController();
     expect(screen.queryByRole('button', { name: 'Add to favorites' })).toBeNull();
-    expect(within(favorites()).getByText('No favorites yet.')).toBeTruthy();
+    expect(within(favorites()).getByText('No favorites yet. Search for a city and choose Add to favorites.')).toBeTruthy();
   });
 
   it('the add control sends the add intent', async () => {
@@ -36,10 +36,10 @@ describe('Favorites UI (TASK-031)', () => {
     expect(await within(favorites()).findByRole('button', { name: 'Alpha, Region A, Land A Showing' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add to favorites' })).toBeNull();
     expect(within(favorites()).getByText('This city is in your favorites.')).toBeTruthy();
-    expect(stored(t.kv).favorites).toHaveLength(1);
+    expect(stored(t.kv).items).toHaveLength(1);
     // The controller also refuses a duplicate if asked again.
     await act(() => t.controller.addFavorite());
-    expect(stored(t.kv).favorites).toHaveLength(1);
+    expect(stored(t.kv).items).toHaveLength(1);
     expect(screen.getByText('This city is already in your favorites.')).toBeTruthy();
   });
 
@@ -81,11 +81,11 @@ describe('Favorites UI (TASK-031)', () => {
     await act(() => t.controller.addFavorite());
     expect(screen.queryByRole('button', { name: 'Add to favorites' })).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Remove Alpha, Region A, Land A from favorites' }));
-    await waitFor(() => expect(within(favorites()).getByText('No favorites yet.')).toBeTruthy());
+    await waitFor(() => expect(within(favorites()).getByText('No favorites yet. Search for a city and choose Add to favorites.')).toBeTruthy());
     expect(within(current()).getByRole('heading', { name: 'Alpha, Region A, Land A' })).toBeTruthy();
     expect(within(current()).getByText('22°C')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Add to favorites' })).toBeTruthy();
-    expect(stored(t.kv).favorites).toHaveLength(0);
+    expect(stored(t.kv).items).toHaveLength(0);
   });
 
   it('lists favorites saved earlier on launch (persistence across a reload)', async () => {
@@ -105,11 +105,29 @@ describe('Favorites UI (TASK-031)', () => {
     kv.failAll();
     const t = renderStack({ kv });
     await act(() => t.controller.start());
-    expect(await within(favorites()).findByText('Favorites may not be saved on this device.')).toBeTruthy();
+    expect(await within(favorites()).findByText('Favorites cannot be saved on this device. They will be kept only until you close this page.')).toBeTruthy();
     await act(() => t.controller.chooseCandidate(A));
     await user.click(screen.getByRole('button', { name: 'Add to favorites' }));
     expect(await within(favorites()).findByRole('button', { name: 'Alpha, Region A, Land A Showing' })).toBeTruthy();
     expect(screen.getByLabelText('City name')).toBeTruthy();
+  });
+
+  it.each([
+    ['unparseable data', '{not json'],
+    ['the old { version, favorites } shape', JSON.stringify({ version: 1, favorites: [] })],
+  ])('%s in storage: the corruption notice (M-16) is shown and adding a favorite still works', async (_n, raw) => {
+    const user = userEvent.setup();
+    const kv = new InMemoryKeyValueStore({ [FAVORITES_STORAGE_KEY]: raw });
+    const t = renderStack({ kv });
+    await act(() => t.controller.start());
+    expect(
+      await within(favorites()).findByText('Your saved favorites could not be read and were cleared. You can add cities again.'),
+    ).toBeTruthy();
+    expect(within(favorites()).queryByText(/cannot be saved on this device/)).toBeNull();
+    await act(() => t.controller.chooseCandidate(A));
+    await user.click(screen.getByRole('button', { name: 'Add to favorites' }));
+    expect(await within(favorites()).findByRole('button', { name: 'Alpha, Region A, Land A Showing' })).toBeTruthy();
+    expect(stored(t.kv).items).toHaveLength(1);
   });
 
   it('an unresolved device location cannot be favorited: a hint replaces the add control', async () => {
@@ -118,7 +136,7 @@ describe('Favorites UI (TASK-031)', () => {
     await act(() => t.controller.useMyLocation());
     expect(within(current()).getByRole('heading', { name: 'Current location' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add to favorites' })).toBeNull();
-    expect(within(favorites()).getByText('Search for the city by name to save it as a favorite.')).toBeTruthy();
+    expect(within(favorites()).getByText('Your current location cannot be saved. Search for the city by name to add it to your favorites.')).toBeTruthy();
     expect(t.kv.data.get(FAVORITES_STORAGE_KEY)).toBeUndefined();
   });
 });

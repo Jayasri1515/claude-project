@@ -6,8 +6,8 @@
  * section "WMO Weather interpretation codes (WW)", checked 2026-10-27). The API
  * returns only the number; the English description comes from that table.
  *
- * ConditionCode has no drizzle or hail value, so drizzle (51-57) and freezing
- * rain (66, 67) map to RAIN, and the thunderstorm codes with hail (96, 99) map
+ * ConditionCode has DRIZZLE (51-57, including freezing drizzle) but no hail value, so freezing
+ * rain (66, 67) maps to RAIN, and the thunderstorm codes with hail (96, 99) map
  * to THUNDERSTORM. Any code that is not in the table maps to UNKNOWN (never
  * throws), and a missing or non-numeric code maps to nothing at all.
  */
@@ -25,11 +25,11 @@ export const WMO_CODES: Readonly<Record<number, WmoEntry>> = Object.freeze({
   3: { condition: 'CLOUDY', text: 'Overcast' },
   45: { condition: 'FOG', text: 'Fog' },
   48: { condition: 'FOG', text: 'Depositing rime fog' },
-  51: { condition: 'RAIN', text: 'Light drizzle' },
-  53: { condition: 'RAIN', text: 'Moderate drizzle' },
-  55: { condition: 'RAIN', text: 'Dense drizzle' },
-  56: { condition: 'RAIN', text: 'Light freezing drizzle' },
-  57: { condition: 'RAIN', text: 'Dense freezing drizzle' },
+  51: { condition: 'DRIZZLE', text: 'Light drizzle' },
+  53: { condition: 'DRIZZLE', text: 'Moderate drizzle' },
+  55: { condition: 'DRIZZLE', text: 'Dense drizzle' },
+  56: { condition: 'DRIZZLE', text: 'Light freezing drizzle' },
+  57: { condition: 'DRIZZLE', text: 'Dense freezing drizzle' },
   61: { condition: 'RAIN', text: 'Slight rain' },
   63: { condition: 'RAIN', text: 'Moderate rain' },
   65: { condition: 'RAIN', text: 'Heavy rain' },

@@ -106,7 +106,7 @@ describe('ViewStateStore snapshot retention', () => {
     store.setSnapshot(failed);
     const snap = store.getState().snapshot;
     expect(snap?.current.status).toBe('error');
-    expect(snap?.current.error?.code).toBe('SERVICE_UNAVAILABLE');
+    expect(snap?.current.error?.kind).toBe('service');
     expect(snap?.current.data).toEqual(sampleSnapshot.current.data);
     expect(snap?.current.updatedAt).toEqual(sampleSnapshot.current.updatedAt);
     expect(snap?.forecast).toEqual(sampleSnapshot.forecast);

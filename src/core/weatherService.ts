@@ -20,7 +20,7 @@ import { serviceUnavailable, timeoutError } from './errors';
 import type { AppError } from './errors';
 import { padForecast, truncateForecast } from './forecast';
 import type { ForecastSlot } from './forecast';
-import type { Clock, WeatherProvider } from './ports';
+import type { Clock, LegacyWeatherProvider } from './ports';
 import { err, ok } from './result';
 import type { Ok, Result } from './result';
 
@@ -41,7 +41,7 @@ export interface WeatherRequestContext {
 export type WeatherServiceConfig = Pick<Config, 'weatherTimeoutMs' | 'forecastDays' | 'forecastIncludesToday'>;
 
 export interface WeatherServiceDeps {
-  readonly provider: WeatherProvider;
+  readonly provider: LegacyWeatherProvider;
   readonly clock: Clock;
   readonly config: WeatherServiceConfig;
 }
@@ -63,7 +63,7 @@ function makeSection<T>(
 }
 
 export class WeatherService {
-  private readonly provider: WeatherProvider;
+  private readonly provider: LegacyWeatherProvider;
   private readonly clock: Clock;
   private readonly config: WeatherServiceConfig;
   private readonly inFlight = new Map<string, Promise<WeatherLoadResult>>();
@@ -208,7 +208,11 @@ export class WeatherService {
       }, this.config.weatherTimeoutMs);
       own.signal.addEventListener('abort', () => resolve(ABORTED), { once: true });
     });
-    const run: Promise<GuardedResult<T>> = (async () => call(own.signal))().catch(() => err(serviceUnavailable()));
+    // A provider result of kind `aborted` is the app's own cancellation (DR-09): it becomes the discard outcome, so it
+    // can never be stored in a section or shown.
+    const run: Promise<GuardedResult<T>> = (async () => call(own.signal))()
+      .then((result): GuardedResult<T> => (!result.ok && result.error.kind === 'aborted' ? ABORTED : result))
+      .catch(() => err(serviceUnavailable()));
 
     try {
       return await Promise.race([run, guard]);

@@ -1,12 +1,11 @@
 /**
- * Release-build check in real browsers (Edge and Chrome via Playwright). Unlike the other specs, which run
- * the DEMO dev server, this one runs against `vite preview` of the plain release build (`npm run build:release`,
- * started by playwright.config.ts on its own port). Since TASK-037 the release build is the REAL app: it talks to
+ * Release-build check in real browsers (Playwright engines, see playwright.config.ts). It runs against
+ * `vite preview` of the release build (`npm run build:release`, started by playwright.config.ts on its own port). Since TASK-037 the release build is the REAL app: it talks to
  * Open-Meteo. These tests never reach the live API: every request to the two Open-Meteo hosts is intercepted
  * with Playwright routes and answered from recorded responses (test/fixtures/openmeteo), and any other external
  * request fails the test.
  *
- * What it checks: the real app (not the "not set up" page, no demo content or notice) loads with no console
+ * What it checks: the real app (not the "not set up" page, no invented sample content) loads with no console
  * output, page error or failed request and with no external request before the user acts; a search, choice and
  * weather display work through the built bundle; the requests are HTTPS GETs to exactly the two documented hosts
  * with percent-encoded input and no key; provider failures show only fixed messages; over-long input is
@@ -19,67 +18,11 @@
  *
  * Not covered: the live API in a browser (done once by hand, see impl-plan TASK-037) and other browsers.
  */
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
-import type { Page, Route } from '@playwright/test';
-
-const GEOCODING = /^https:\/\/geocoding-api\.open-meteo\.com\/v1\/search\?/;
-const FORECAST = /^https:\/\/api\.open-meteo\.com\/v1\/forecast\?/;
-const OPEN_METEO_HOSTS = ['api.open-meteo.com', 'geocoding-api.open-meteo.com'];
-const CORS = { 'access-control-allow-origin': '*' };
-const AXE_PATH = fileURLToPath(new URL('../node_modules/axe-core/axe.min.js', import.meta.url));
-
-const fixture = (name: string): string => readFileSync(join(process.cwd(), 'test', 'fixtures', 'openmeteo', name), 'utf8');
-const ok = (route: Route, body: string): Promise<void> =>
-  route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body });
-
-interface Watch {
-  readonly external: string[];
-  readonly failed: string[];
-  readonly bad: string[];
-  readonly consoleOutput: string[];
-  readonly pageErrors: string[];
-}
-
-/** Records everything that should stay empty, plus every request that leaves the app origin. */
-function watch(page: Page, origin: string): Watch {
-  const w: Watch = { external: [], failed: [], bad: [], consoleOutput: [], pageErrors: [] };
-  page.on('request', (r) => {
-    const u = r.url();
-    if (!u.startsWith('data:') && new URL(u).origin !== origin) w.external.push(u);
-  });
-  page.on('requestfailed', (r) => w.failed.push(`${r.url()} (${r.failure()?.errorText ?? 'failed'})`));
-  page.on('response', (r) => {
-    if (r.status() >= 400) w.bad.push(`${r.status()} ${r.url()}`);
-  });
-  page.on('console', (m) => w.consoleOutput.push(`${m.type()}: ${m.text()}`));
-  page.on('pageerror', (e) => w.pageErrors.push(e.message));
-  return w;
-}
-
-/** Answers the two Open-Meteo APIs from the recordings. Any other external URL is aborted (and so fails the test). */
-async function routeOpenMeteo(page: Page, origin: string, overrides: { geocoding?: (route: Route) => Promise<void> } = {}): Promise<void> {
-  await page.route(GEOCODING, (route) => (overrides.geocoding ?? ((r: Route) => ok(r, fixture('geocoding-berlin.json'))))(route));
-  await page.route(FORECAST, (route) => {
-    const params = new URL(route.request().url()).searchParams;
-    return ok(route, fixture(params.has('daily') ? 'forecast-daily.json' : 'forecast-current.json'));
-  });
-  await page.route((url) => url.origin !== origin && !GEOCODING.test(url.href) && !FORECAST.test(url.href) && !url.href.startsWith('data:'), (route) =>
-    route.abort(),
-  );
-}
-
-async function expectRealApp(page: Page): Promise<void> {
-  await expect(page.getByRole('heading', { level: 1, name: 'Weather' })).toBeVisible();
-  await expect(page.getByLabel('City name')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Use my location' })).toBeVisible();
-  await expect(page.getByText('Weather is not set up yet')).toHaveCount(0);
-}
+import { CORS, expectRealApp, GEOCODING, injectAxe, OPEN_METEO_HOSTS, routeOpenMeteo, watch } from './support';
 
 test.describe('plain release build (vite preview), Open-Meteo intercepted', () => {
-  test('loads the real app: no demo content, nothing external before the user acts, nothing stored, no console output', async ({ page, baseURL }) => {
+  test('loads the real app: no sample content, nothing external before the user acts, nothing stored, no console output', async ({ page, baseURL }) => {
     const origin = new URL(baseURL ?? 'http://localhost').origin;
     const w = watch(page, origin);
     await routeOpenMeteo(page, origin);
@@ -87,14 +30,12 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
     await page.goto('./');
     await expectRealApp(page);
     await page.waitForLoadState('networkidle');
-    // M1: the live disclosure names what the weather service receives (and not the demo statement).
-    await expect(page.getByText(/receives the text you search for.*your IP address, and may log requests/)).toBeVisible();
+    // M-24 (footer Option A): the disclosure names what is sent and the 90-day server log retention.
+    await expect(page.getByText(/are sent to Open-Meteo to get the weather, along with your IP address\. Open-Meteo keeps server logs that may contain coordinates for 90 days\./)).toBeVisible();
 
-    // The page really is the release bundle, not a demo build served by mistake.
-    expect(await page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name).filter((n) => /demo/i.test(n)))).toEqual([]);
+    // The page shows no invented sample content (regression guard for the removed invented-data layer).
     const bodyText = (await page.locator('body').innerText()).toLowerCase();
-    for (const word of ['demo', 'testville', 'sampleton', 'partialia', 'glitchton', 'made-up']) expect(bodyText, word).not.toContain(word);
-    await expect(page.locator('.demo-notice, .demo-location-note')).toHaveCount(0);
+    for (const word of ['demo', 'made-up']) expect(bodyText, word).not.toContain(word);
 
     // No weather request until the user acts, and no storage is written by loading the page.
     expect(w.external, 'external requests before any user action').toEqual([]);
@@ -190,6 +131,8 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
         return Array.from(copy.querySelectorAll('p')).map((p) => p.textContent);
       });
     const expected = [
+      // M-24, footer Option A, exactly as approved in message-wording.md.
+      'The city you search for and your device location (rounded to two decimal places) are sent to Open-Meteo to get the weather, along with your IP address. Open-Meteo keeps server logs that may contain coordinates for 90 days. This app does not save your device location and collects no other data: there are no analytics, cookies or tracking. Favorites and your unit choice stay on this device.',
       'Weather data by Open-Meteo.com. Location data based on GeoNames.',
       'Data licence: CC BY 4.0. Changes: values are rounded and conditions are simplified.',
       'Third-party notices',
@@ -316,7 +259,7 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
       await expect(page.locator('svg.weather-icon')).toHaveCount(4); // current weather + 3 forecast days
       await expect(page.locator('.panel-credit a')).toHaveCount(2); // the credit beside the data is part of what axe checks
 
-      if (!(await page.evaluate(() => 'axe' in window))) await page.addScriptTag({ path: AXE_PATH });
+      await injectAxe(page); // not addScriptTag: an inline script is blocked by the page's CSP
       const results = await page.evaluate(async () => {
         interface Axe {
           run(
@@ -389,7 +332,19 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
     const scriptUrl = await page.evaluate(() => (Array.from(document.scripts).find((s) => /\.js$/.test(s.src)) as HTMLScriptElement).src);
     const bundle = await (await page.request.get(scriptUrl)).text();
     const defined = new Set([...bundle.matchAll(/name:[`"']([a-z0-9-]+)[`"'],size:24,node:\[/g)].map((m) => m[1]));
-    expect([...defined].sort()).toEqual(['circle-question-mark', 'cloud', 'cloud-fog', 'cloud-lightning', 'cloud-rain', 'cloud-snow', 'cloud-sun', 'sun']);
+    expect([...defined].sort()).toEqual([
+      'circle-question-mark',
+      'cloud',
+      'cloud-drizzle',
+      'cloud-fog',
+      'cloud-lightning',
+      'cloud-moon',
+      'cloud-rain',
+      'cloud-snow',
+      'cloud-sun',
+      'moon',
+      'sun',
+    ]);
   });
 
   test('over-long input is refused with its own message and sends no request (C2)', async ({ page, baseURL }) => {
@@ -425,8 +380,80 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
     await page.goto('./');
     await page.getByLabel('City name').fill('Berlin');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
-    await expect(page.getByText(/weather service is unavailable/)).toBeVisible();
+    await expect(page.getByText('Could not connect to the weather service. Check your internet connection and try again.')).toBeVisible();
     await expect(page.getByLabel('City name')).toBeEnabled();
+  });
+
+  test('REQ-WF1-05: when the provider fails once, Retry re-submits the last search text and the weather appears', async ({ page, baseURL }) => {
+    const origin = new URL(baseURL ?? 'http://localhost').origin;
+    await routeOpenMeteo(page, origin);
+    let geocodingCalls = 0;
+    const queries: string[] = [];
+    // Registered after the recorded answers, so it runs first and passes every call but the first on to them.
+    await page.route(GEOCODING, (route) => {
+      geocodingCalls += 1;
+      queries.push(new URL(route.request().url()).searchParams.get('name') ?? '');
+      return geocodingCalls === 1 ? route.fulfill({ status: 503, contentType: 'application/json', headers: CORS, body: '{}' }) : route.fallback();
+    });
+    await page.goto('./');
+    await page.getByLabel('City name').fill('  Berlin ');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByText(/weather service is unavailable/)).toBeVisible();
+    await page.getByLabel('City name').fill('something else');
+    const retry = page.getByRole('button', { name: 'Retry', exact: true });
+    await retry.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('group', { name: /Several places match/ })).toBeVisible();
+    await expect(page.getByText(/weather service is unavailable/)).toHaveCount(0);
+    expect(queries).toEqual(['Berlin', 'Berlin']);
+  });
+
+  test('an unreadable search response shows the approved M-06 text', async ({ page, baseURL }) => {
+    const origin = new URL(baseURL ?? 'http://localhost').origin;
+    await routeOpenMeteo(page, origin, {
+      geocoding: (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: '<html>not json' }),
+    });
+    await page.goto('./');
+    await page.getByLabel('City name').fill('Berlin');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByText('The weather service sent a response this app could not read. Please try again later.')).toBeVisible();
+  });
+
+  test('the CSP is enforced: the page loads under it with no violation, while an inline script and a request to another host are blocked (T-51)', async ({ page, baseURL }) => {
+    const origin = new URL(baseURL ?? 'http://localhost').origin;
+    const w = watch(page, origin);
+    await routeOpenMeteo(page, origin);
+    await page.addInitScript(() => {
+      const w = window as unknown as { __violations: string[] };
+      w.__violations = [];
+      document.addEventListener('securitypolicyviolation', (e) => w.__violations.push(`${e.effectiveDirective} ${e.blockedURI}`));
+    });
+    await page.goto('./');
+    await expectRealApp(page);
+    const policy = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content');
+    expect(policy).toContain("default-src 'self'");
+    expect(policy).toContain('connect-src https://api.open-meteo.com https://geocoding-api.open-meteo.com;');
+    await page.getByLabel('City name').fill('Berlin');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await page.getByRole('group', { name: /Several places match/ }).getByRole('button', { name: 'Berlin, State of Berlin, Germany' }).click();
+    await expect(page.getByRole('region', { name: 'Forecast' }).getByRole('listitem')).toHaveCount(3);
+    expect(await page.evaluate(() => (window as unknown as { __violations: string[] }).__violations), 'violations while using the app').toEqual([]);
+    expect(w.consoleOutput, 'console output').toEqual([]);
+
+    // The policy really blocks: an inline script, and a fetch to a host that is not one of the two.
+    const blocked = await page.evaluate(async () => {
+      const w = window as unknown as { __violations: string[]; __ran?: boolean };
+      const script = document.createElement('script');
+      script.textContent = 'window.__ran = true';
+      document.head.appendChild(script);
+      const fetched = await fetch('https://example.invalid/x', { mode: 'no-cors' }).then(() => 'allowed', () => 'blocked');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { ran: w.__ran === true, fetched, violations: w.__violations };
+    });
+    expect(blocked.ran).toBe(false);
+    expect(blocked.fetched).toBe('blocked');
+    expect(blocked.violations.some((v) => v.startsWith('script-src'))).toBe(true);
+    expect(blocked.violations.some((v) => v.startsWith('connect-src') && v.includes('example.invalid'))).toBe(true);
   });
 
   test('the favicon is declared inline, so the browser does not request /favicon.ico', async ({ page, baseURL }) => {
@@ -438,12 +465,15 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
     await expect(page.locator('link[rel="icon"]')).toHaveAttribute('href', 'data:,');
     await page.waitForLoadState('networkidle');
     expect(requests).not.toContain('/favicon.ico');
-    expect(requests).not.toContain('/claude-project/favicon.ico');
+    expect(requests.some((r) => r.endsWith('/favicon.ico'))).toBe(false);
   });
 
-  test('the app is served under /claude-project/ (GitHub Pages project-site path): assets, notices link and the page itself resolve there', async ({ page, baseURL }) => {
+  test('the app is served under the configured base path (VITE_BASE): assets, notices link and the page itself resolve there', async ({ page, baseURL }) => {
     const origin = new URL(baseURL ?? 'http://localhost').origin;
-    expect(new URL(baseURL ?? '').pathname).toBe('/claude-project/');
+    // The release build for this project is made with a non-root VITE_BASE (playwright.config.ts), so the check is meaningful.
+    const basePath = new URL(baseURL ?? '').pathname;
+    expect(basePath).not.toBe('/');
+    expect(basePath).toMatch(/^\/[\w.~-]+\/$/);
     const w = watch(page, origin);
     await routeOpenMeteo(page, origin);
     const sameOrigin: string[] = [];
@@ -453,19 +483,19 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
     await page.goto('./');
     await expectRealApp(page);
     await page.waitForLoadState('networkidle');
-    expect(new URL(page.url()).pathname).toBe('/claude-project/');
+    expect(new URL(page.url()).pathname).toBe(basePath);
 
     // Every same-origin request (page, script, stylesheet) is under the base: nothing is requested from the site root.
     expect(sameOrigin.length).toBeGreaterThanOrEqual(3);
-    for (const p of sameOrigin) expect(p, 'same-origin request outside the base').toMatch(/^\/claude-project\//);
-    expect(sameOrigin.some((p) => /^\/claude-project\/assets\/.+\.js$/.test(p))).toBe(true);
-    expect(sameOrigin.some((p) => /^\/claude-project\/assets\/.+\.css$/.test(p))).toBe(true);
+    for (const p of sameOrigin) expect(p.startsWith(basePath), `same-origin request outside the base: ${p}`).toBe(true);
+    expect(sameOrigin.some((p) => p.startsWith(`${basePath}assets/`) && p.endsWith('.js'))).toBe(true);
+    expect(sameOrigin.some((p) => p.startsWith(`${basePath}assets/`) && p.endsWith('.css'))).toBe(true);
 
     // The footer's notices link is relative, and it resolves to the file under the base.
     const href = await page.getByRole('link', { name: /Third-party notices/ }).getAttribute('href');
     expect(href).toBe('THIRD_PARTY_NOTICES.txt');
     const resolved = new URL(href ?? '', page.url());
-    expect(resolved.pathname).toBe('/claude-project/THIRD_PARTY_NOTICES.txt');
+    expect(resolved.pathname).toBe(`${basePath}THIRD_PARTY_NOTICES.txt`);
     const notices = await page.request.get(resolved.href);
     expect(notices.status()).toBe(200);
     expect(await notices.text()).toContain('Package:  lucide-react');
@@ -492,10 +522,11 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
     const fromApp = seen.splice(0);
     expect(fromApp.length).toBeGreaterThanOrEqual(3);
     for (const call of fromApp) {
-      expect(call.headers['referer'], `Referer on ${call.url}`).toBeUndefined();
-      // No header that would force a CORS preflight: only the browser's own defaults are present.
+      expect(call.headers['referer'], `Referer on ${call.url}`).toBeUndefined();      // No header that would force a CORS preflight: only the browser's own defaults are present. `cache: 'no-store'`
+      // (required by provider-verification.md / T-30) makes Firefox and WebKit add Cache-Control and Pragma themselves;
+      // the page sets no header (Firefox also lists host and connection). Whether the real provider answers those without a preflight is checked by the live run.
       const custom = Object.keys(call.headers).filter(
-        (h) => !['accept', 'accept-language', 'accept-encoding', 'user-agent', 'origin', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'referer'].includes(h.toLowerCase()),
+        (h) => !['accept', 'accept-language', 'accept-encoding', 'user-agent', 'origin', 'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform', 'sec-fetch-dest', 'sec-fetch-mode', 'sec-fetch-site', 'referer', 'cache-control', 'pragma', 'host', 'connection'].includes(h.toLowerCase()),
       );
       expect(custom, `unexpected request headers on ${call.url}`).toEqual([]);
     }
@@ -505,7 +536,7 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
     expect(seen[0]?.headers['referer']).toBe(new URL(page.url()).origin + '/'); // the default policy sends the page origin
   });
 
-  test('every script and stylesheet the page loads is free of demo code and demo place names', async ({ page, baseURL }) => {
+  test('every script and stylesheet the page loads is free of the removed invented-data layer (regression guard)', async ({ page, baseURL }) => {
     await routeOpenMeteo(page, new URL(baseURL ?? 'http://localhost').origin);
     const assets: string[] = [];
     page.on('response', (r) => {
@@ -522,6 +553,35 @@ test.describe('plain release build (vite preview), Open-Meteo intercepted', () =
         expect(body, `${url} contains ${marker}`).not.toContain(marker);
       }
     }
+  });
+});
+
+test.describe('plain release build: the device location is requested when the app opens (REQ-WF2-01, REQ-WF2-02, architecture 3.3)', () => {
+  test('app open asks the browser once, with no browser timeout; an unanswered prompt shows the waiting text and the search-instead cue, never a timeout', async ({ page, baseURL }) => {
+    const origin = new URL(baseURL ?? 'http://localhost').origin;
+    await routeOpenMeteo(page, origin);
+    // A browser whose permission prompt is never answered: the Permissions API says "prompt" and the position call never returns.
+    await page.addInitScript(() => {
+      const calls: number[] = [];
+      (window as unknown as { __geoCalls: number[] }).__geoCalls = calls;
+      Object.defineProperty(navigator, 'geolocation', {
+        configurable: true,
+        value: { getCurrentPosition: (...args: unknown[]) => void calls.push(args.length) },
+      });
+      Object.defineProperty(navigator, 'permissions', {
+        configurable: true,
+        value: { query: () => Promise.resolve({ state: 'prompt', addEventListener: () => undefined, removeEventListener: () => undefined }) },
+      });
+    });
+    await page.goto('./');
+    await expectRealApp(page);
+    const status = page.getByRole('region', { name: 'Status' });
+    await expect(status.getByText('Detecting your location...')).toBeVisible();
+    await expect(status.getByText('Taking a while? You can search for a city instead.')).toBeVisible();
+    // Two arguments (success and error callbacks): no options object, so no browser `timeout`.
+    expect(await page.evaluate(() => (window as unknown as { __geoCalls: number[] }).__geoCalls)).toEqual([2]);
+    await expect(page.getByLabel('City name')).toBeEnabled();
+    await expect(page.getByText(/took too long/)).toHaveCount(0);
   });
 });
 
@@ -549,7 +609,7 @@ test.describe('plain release build: device location with permission already gran
       expect([params.get('latitude'), params.get('longitude')], raw).toEqual(['12.35', '-77.25']);
     }
     await expect(page.getByRole('button', { name: 'Add to favorites' })).toHaveCount(0);
-    await expect(page.getByText('Search for the city by name to save it as a favorite.')).toBeVisible();
+    await expect(page.getByText('Your current location cannot be saved. Search for the city by name to add it to your favorites.')).toBeVisible();
     const stored = await page.evaluate(() => ({ local: Object.keys(localStorage), cookie: document.cookie }));
     expect(stored).toEqual({ local: [], cookie: '' });
     expect(w.failed).toEqual([]);

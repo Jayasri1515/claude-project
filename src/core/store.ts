@@ -19,7 +19,8 @@ export type SearchState =
 export type LocationFlowState =
   | { readonly status: 'idle' }
   | { readonly status: 'locating' }
-  | { readonly status: 'error'; readonly error: AppError };
+  /** `hint` is a second message shown under the error (M-08 under a denial the Permissions API reports). */
+  | { readonly status: 'error'; readonly error: AppError; readonly hint?: MessageId };
 
 export interface TransientMessage {
   readonly id: number;
@@ -38,6 +39,8 @@ export interface ViewState {
   readonly locationFlow: LocationFlowState;
   readonly favorites: readonly Location[];
   readonly favoritesStorageUnavailable: boolean;
+  /** Stored favorites were unreadable and discarded at load: show M-16 (REQ-WF6-06). */
+  readonly favoritesDataDiscarded: boolean;
   readonly temperatureUnit: TemperatureUnit;
   readonly messages: readonly TransientMessage[];
 }
@@ -50,6 +53,7 @@ export function createInitialState(overrides: Partial<ViewState> = {}): ViewStat
     locationFlow: { status: 'idle' },
     favorites: [],
     favoritesStorageUnavailable: false,
+    favoritesDataDiscarded: false,
     temperatureUnit: 'C',
     messages: [],
     ...overrides,

@@ -1,8 +1,7 @@
 /**
  * Unit tests for scripts/demoMarkers.mjs (TASK-043). Each marker has a positive sample (the scan must report
- * it) and a negative one (ordinary release text must not). Structural markers (chunk file name, symbols,
- * storage prefix) are checked against the real names exported by src/dev, so renaming the demo code without
- * updating the markers fails here.
+ * it) and a negative one (ordinary release text must not). The invented-data layer (src/dev) was removed in impl-plan
+ * T-14; the markers stay as a regression guard, checked here against a frozen list of the retired names.
  */
 import { describe, expect, it } from 'vitest';
 import { DEMO_FILE_NAME_PATTERNS, DEMO_MARKERS, scanDemoFileName, scanDemoMarkers } from '../../scripts/demoMarkers.mjs';
@@ -19,7 +18,7 @@ const MARKER_CASES: ReadonlyArray<{ marker: string; positives: string[]; negativ
   {
     marker: 'demo provider symbol (DemoGeocodingProvider, DemoWeatherProvider, DemoLocationService)',
     positives: ['new DemoGeocodingProvider()', 'class DemoWeatherProvider{}', 'new DemoLocationService()'],
-    negatives: ['class GeocodingProvider{}', 'DemoWeatherProviderX', 'new WeatherProvider()'],
+    negatives: ['class LegacyGeocodingProvider{}', 'DemoWeatherProviderX', 'new LegacyWeatherProvider()'],
   },
   {
     marker: 'demo store symbol (PrefixedKeyValueStore, DEMO_STORAGE_PREFIX)',
@@ -105,43 +104,38 @@ describe('demo file names', () => {
   );
 });
 
-describe('markers match the real demo layer in src/dev', () => {
-  const dev = sourceFiles('src/dev', /\.ts$/);
+describe('markers still cover the names of the retired src/dev layer (the layer itself was removed in T-14)', () => {
+  // Frozen copy of what src/dev exported; the directory no longer exists, so the names are listed here.
+  const RETIRED_EXPORTS = [
+    'composeDemo',
+    'DemoGeocodingProvider',
+    'DemoWeatherProvider',
+    'DemoLocationService',
+    'PrefixedKeyValueStore',
+    'DEMO_STORAGE_PREFIX',
+  ];
+  const RETIRED_MODULES = ['demoComposition', 'demoProviders', 'prefixedStore'];
+  const RETIRED_PLACES = ['Testville', 'Sampleton', 'Partialia', 'Glitchton'];
 
-  it('src/dev is not empty', () => {
-    expect(dev.map((f) => f.path).sort()).toEqual([
-      'src/dev/demoComposition.ts',
-      'src/dev/demoProviders.ts',
-      'src/dev/prefixedStore.ts',
-    ]);
+  it('src/dev no longer exists in the working tree', () => {
+    expect(sourceFiles('src', /\.ts$/).filter((f) => f.path.startsWith('src/dev/'))).toEqual([]);
   });
 
-  it('every exported class, function and constant name of src/dev is reported by a marker', () => {
-    const exported = dev.flatMap((f) => [...f.text.matchAll(/export\s+(?:class|function|const)\s+(\w+)/g)].map((m) => m[1] ?? ''));
-    expect(exported.length).toBeGreaterThan(4);
-    for (const name of exported) {
-      expect(scanDemoMarkers(`x=${name}(1)`).length, name).toBeGreaterThan(0);
-    }
+  it('every retired exported name is reported by a marker', () => {
+    for (const name of RETIRED_EXPORTS) expect(scanDemoMarkers(`x=${name}(1)`).length, name).toBeGreaterThan(0);
   });
 
-  it('a build chunk named after each src/dev module is reported by the file-name check', () => {
-    for (const f of dev) {
-      const base = f.path.split('/').pop()?.replace(/\.ts$/, '') ?? '';
+  it('a build chunk named after each retired module is reported by the file-name check', () => {
+    for (const base of RETIRED_MODULES) {
       expect(scanDemoFileName(`assets/${base}-AbC123_x.js`).length, base).toBeGreaterThan(0);
     }
   });
 
-  it('the demo storage prefix used by the code is reported', () => {
-    const demo = dev.find((f) => f.path === 'src/dev/demoComposition.ts')?.text ?? '';
-    const prefix = /DEMO_STORAGE_PREFIX\s*=\s*'([^']+)'/.exec(demo)?.[1] ?? '';
-    expect(prefix).not.toBe('');
-    expect(scanDemoMarkers(`new P(a,"${prefix}")`).map((f) => f.name)).toContain('demo storage key prefix "demo:"');
+  it('the retired storage prefix is reported', () => {
+    expect(scanDemoMarkers('new P(a,"demo:")').map((f) => f.name)).toContain('demo storage key prefix "demo:"');
   });
 
-  it('every demo place name in src/dev/demoProviders.ts is reported by a marker', () => {
-    const demo = dev.find((f) => f.path === 'src/dev/demoProviders.ts')?.text ?? '';
-    const places = [...demo.matchAll(/place\('\d+', '([^']+)'/g)].map((m) => m[1] ?? '');
-    expect(places.length).toBeGreaterThan(0);
-    for (const name of places) expect(scanDemoMarkers(name).length, name).toBeGreaterThan(0);
+  it('every retired place name is reported by a marker', () => {
+    for (const name of RETIRED_PLACES) expect(scanDemoMarkers(name).length, name).toBeGreaterThan(0);
   });
 });

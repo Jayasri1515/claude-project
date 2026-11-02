@@ -10,13 +10,15 @@
  * The icon uses `currentColor`, so it follows the text colour (and forced-colours mode); colour is never the
  * only carrier of meaning.
  */
-import { CONDITION_PRESENTATION } from '../core/conditions';
+import { CONDITION_PRESENTATION, NIGHT_ICON_KEYS } from '../core/conditions';
 import { CONDITION_CODES } from '../core/domain';
 import type { ConditionCode } from '../core/domain';
-import { CONDITION_ICONS } from './weatherIcons';
+import { CONDITION_ICONS, NIGHT_CONDITION_ICONS } from './weatherIcons';
 
 export interface WeatherIconProps {
   readonly condition: ConditionCode | undefined;
+  /** Use the night variant (Moon, CloudMoon) when the condition has one; every other condition ignores it. */
+  readonly night?: boolean;
   /** Accessible name for an icon that is NOT next to the condition text. Omit it for a decorative icon. */
   readonly label?: string;
 }
@@ -25,10 +27,16 @@ function knownCondition(condition: ConditionCode | undefined): ConditionCode {
   return condition !== undefined && (CONDITION_CODES as readonly string[]).includes(condition) ? condition : 'UNKNOWN';
 }
 
-export function WeatherIcon({ condition, label }: WeatherIconProps) {
+export function WeatherIcon({ condition, night = false, label }: WeatherIconProps) {
   const code = knownCondition(condition);
-  const Icon = CONDITION_ICONS[code];
-  const common = { className: 'weather-icon', 'data-icon-key': CONDITION_PRESENTATION[code].iconKey, focusable: false } as const;
+  const nightIcon = night ? NIGHT_CONDITION_ICONS[code] : undefined;
+  const Icon = nightIcon ?? CONDITION_ICONS[code];
+  const iconKey = nightIcon !== undefined ? NIGHT_ICON_KEYS[code] : undefined;
+  const common = {
+    className: 'weather-icon',
+    'data-icon-key': iconKey ?? CONDITION_PRESENTATION[code].iconKey,
+    focusable: false,
+  } as const;
   if (label !== undefined && label.trim() !== '') {
     return <Icon {...common} role="img" aria-label={label} />;
   }

@@ -7,8 +7,8 @@
  *   auto-detect) increments it and aborts all work started under the previous
  *   token. A result whose token no longer matches is dropped with no UI change,
  *   so the latest user intent always wins (F-007);
- * - the LaunchPolicy (ODD-5, F-001): auto-detect at launch only when the
- *   permission is positively 'granted'; otherwise no prompt on first paint;
+ * - the launch request for the device location (REQ-WF2-01, REQ-WF2-02, architecture 3.3): the app asks the platform
+ *   for the position when it opens, which is what makes the browser show its permission prompt;
  * - the rule that a device location can be favorited only through the named
  *   place it resolved to (F-004).
  *
@@ -20,17 +20,10 @@ import type { Location, TemperatureUnit } from './domain';
 import { emptyInput } from './errors';
 import type { FavoritesService } from './favorites/favoritesService';
 import type { LocationFlow } from './locationFlow';
-import type { PermissionState } from './ports';
 import type { SearchService } from './search';
 import type { SettingsService } from './settings';
 import type { ViewStateStore } from './store';
 import type { WeatherService } from './weatherService';
-
-/** True when the app should detect the location automatically at launch. */
-export type LaunchPolicy = (permission: PermissionState) => boolean;
-
-/** Auto-detect only when the permission is positively granted. */
-export const defaultLaunchPolicy: LaunchPolicy = (permission) => permission === 'granted';
 
 export interface AppControllerDeps {
   readonly search: SearchService;
@@ -39,7 +32,6 @@ export interface AppControllerDeps {
   readonly favorites: FavoritesService;
   readonly settings: SettingsService;
   readonly store: ViewStateStore;
-  readonly launchPolicy?: LaunchPolicy;
 }
 
 interface Ticket {
@@ -55,14 +47,17 @@ export class AppController {
   private readonly favorites: FavoritesService;
   private readonly settings: SettingsService;
   private readonly store: ViewStateStore;
-  private readonly launchPolicy: LaunchPolicy;
 
   private token = 0;
   private abortController = new AbortController();
   /** Aborts the locate attempt in flight; it is not a selection until it resolves. */
   private locateAbort: AbortController | undefined;
-  /** Token of the selection whose city load is in flight (refresh joins it by being ignored). */
-  private loadToken: number | undefined;
+  /**
+   * The controller-wide single-flight flag (architecture 3.7, A-Q19): the token of the one weather load or refresh
+   * that is active, or undefined. At most one is active at any time. A new selection releases it synchronously
+   * (after aborting the old request) before its own load takes it; a refresh while it is set is not started.
+   */
+  private activeLoad: number | undefined;
   /** Token of the selection whose search is waiting for its answer. */
   private searchToken: number | undefined;
 
@@ -73,21 +68,19 @@ export class AppController {
     this.favorites = deps.favorites;
     this.settings = deps.settings;
     this.store = deps.store;
-    this.launchPolicy = deps.launchPolicy ?? defaultLaunchPolicy;
   }
 
   // ---- Intents -----------------------------------------------------------
 
-  /** App launch: load favorites and settings, then apply the LaunchPolicy. */
+  /**
+   * App launch: load favorites and settings, then request the device location (REQ-WF2-01, REQ-WF2-02). A search or
+   * pick made while the request is open supersedes it (the user's explicit choice wins, architecture 3.3 step 6).
+   */
   start(): Promise<void> {
     return this.safely(async () => {
       this.syncFavorites();
       this.store.setState({ temperatureUnit: this.settings.getTemperatureUnit() });
-      const tokenAtLaunch = this.token;
-      const permission = await this.locationFlow.getPermissionState();
-      // The user acted while the permission was being read: their intent wins.
-      if (this.token !== tokenAtLaunch) return;
-      if (this.launchPolicy(permission)) await this.locate(false);
+      await this.locate();
     });
   }
 
@@ -133,9 +126,9 @@ export class AppController {
     });
   }
 
-  /** The "Use my location" control. The permission state is re-read each time. */
+  /** The "Use my location" control: a new attempt. The permission state is re-read each time. */
   useMyLocation(): Promise<void> {
-    return this.safely(() => this.locate(true));
+    return this.safely(() => this.locate());
   }
 
   /** Re-fetch both sections for the displayed location. */
@@ -143,20 +136,34 @@ export class AppController {
     return this.safely(async () => {
       const snapshot = this.store.getState().snapshot;
       if (snapshot === undefined) return;
-      // The initial load of this selection is still running: it already fetches
-      // both sections, so a second request is not made (FR-028, AC-P-03).
-      if (this.loadToken === this.token) return;
+      // A search or pick is waiting for its answer: the snapshot on screen belongs to the previous city and the
+      // new selection will load its own weather, so a refresh of the old city must not start (A-Q19, DR-18).
+      if (this.searchToken === this.token) return;
+      // A load or refresh of this selection is already running: it fetches both sections, so a second request is
+      // not made (single-flight, FR-028, AC-P-03).
+      if (this.activeLoad === this.token) return;
       // Same selection: not a new token, but cancelled if the selection changes.
       const token = this.token;
-      const ticket: Ticket = { token, signal: this.abortController.signal, isCurrent: () => this.token === token };
-      const result = await this.weather.refresh(snapshot, {
-        signal: ticket.signal,
-        onUpdate: (next) => {
-          if (ticket.isCurrent()) this.store.setSnapshot(next);
-        },
-      });
-      if (!ticket.isCurrent() || isAbortedResult(result)) return;
-      this.store.setSnapshot(result.value);
+      // A result is applied only while the selection is unchanged and still shows the refreshed city (DR-18).
+      const shownKey = snapshot.location.key;
+      const isCurrent = (): boolean => {
+        const selected = this.store.getState().selectedLocation;
+        return this.token === token && (selected === undefined || selected.key === shownKey);
+      };
+      const ticket: Ticket = { token, signal: this.abortController.signal, isCurrent };
+      this.activeLoad = token;
+      try {
+        const result = await this.weather.refresh(snapshot, {
+          signal: ticket.signal,
+          onUpdate: (next) => {
+            if (ticket.isCurrent()) this.store.setSnapshot(next);
+          },
+        });
+        if (!ticket.isCurrent() || isAbortedResult(result)) return;
+        this.store.setSnapshot(result.value);
+      } finally {
+        if (this.activeLoad === token) this.activeLoad = undefined;
+      }
     });
   }
 
@@ -220,6 +227,9 @@ export class AppController {
     this.locateAbort = undefined;
     this.token += 1;
     const token = this.token;
+    // The superseded load was just aborted (it will settle as `aborted` and be dropped): release the flag in the same
+    // synchronous step, so the new selection's load can take it and two loads never overlap.
+    this.activeLoad = undefined;
     // Work that was in flight under the old token will be discarded, so its
     // transient "in progress" states must not outlive it.
     const { search, locationFlow } = this.store.getState();
@@ -234,8 +244,12 @@ export class AppController {
    * (or loading) stays untouched and keeps its data if the attempt fails or
    * times out. Only a resolved location starts a new selection. Any other
    * selection intent aborts a locate in flight; a second locate replaces the first.
+   *
+   * When the watchdog fires the timeout message is shown and the returned promise settles, so the "Use my location"
+   * retry is not blocked. The attempt itself stays open (the browser call cannot be cancelled): a position that
+   * arrives later, with no other selection made meanwhile, is applied and clears the message (architecture 3.3 step 4).
    */
-  private async locate(userInitiated: boolean): Promise<void> {
+  private locate(): Promise<void> {
     // A search still waiting for its answer is superseded by this newer intent.
     if (this.searchToken === this.token) {
       this.beginSelection();
@@ -248,19 +262,30 @@ export class AppController {
     const isCurrent = (): boolean => this.token === token && this.locateAbort === locateAbort;
 
     this.store.setState({ locationFlow: { status: 'locating' } });
-    const result = await this.locationFlow.locate(locateAbort.signal, { userInitiated });
-    if (!isCurrent() || isAbortedResult(result)) return;
-    this.locateAbort = undefined;
-    if ('needsUserAction' in result) {
-      this.store.setState({ locationFlow: { status: 'idle' } });
-      return;
-    }
-    if (!result.ok) {
-      this.store.setState({ locationFlow: { status: 'error', error: result.error } });
-      return;
-    }
-    const ticket = this.beginSelection();
-    await this.showLocation(result.value.location, result.value.resolvedPlace, ticket);
+    return new Promise<void>((settle) => {
+      void this.safely(async () => {
+        const result = await this.locationFlow.locate(locateAbort.signal, {
+          onTimedOut: (error) => {
+            if (isCurrent()) this.store.setState({ locationFlow: { status: 'error', error } });
+            settle();
+          },
+        });
+        if (!isCurrent() || isAbortedResult(result)) return;
+        this.locateAbort = undefined;
+        if (!result.ok) {
+          this.store.setState({
+            locationFlow: {
+              status: 'error',
+              error: result.error,
+              ...(result.hint !== undefined ? { hint: result.hint } : {}),
+            },
+          });
+          return;
+        }
+        const ticket = this.beginSelection();
+        await this.showLocation(result.value.location, result.value.resolvedPlace, ticket);
+      }).finally(settle);
+    });
   }
 
   private async showLocation(location: Location, resolvedPlace: Location | undefined, ticket: Ticket): Promise<void> {
@@ -271,7 +296,7 @@ export class AppController {
       search: { status: 'idle' },
       locationFlow: { status: 'idle' },
     });
-    this.loadToken = ticket.token;
+    this.activeLoad = ticket.token;
     try {
       const result = await this.weather.load(location, {
         signal: ticket.signal,
@@ -282,7 +307,7 @@ export class AppController {
       if (!ticket.isCurrent() || isAbortedResult(result)) return;
       this.store.setSnapshot(result.value);
     } finally {
-      if (this.loadToken === ticket.token) this.loadToken = undefined;
+      if (this.activeLoad === ticket.token) this.activeLoad = undefined;
     }
   }
 
@@ -290,6 +315,7 @@ export class AppController {
     this.store.setState({
       favorites: this.favorites.list(),
       favoritesStorageUnavailable: this.favorites.storageUnavailable,
+      favoritesDataDiscarded: this.favorites.dataDiscarded,
     });
   }
 

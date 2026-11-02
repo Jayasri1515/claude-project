@@ -5,6 +5,7 @@ import { compose } from '../../src/composition';
 import { createConfig } from '../../src/core/config';
 import type { Config } from '../../src/core/config';
 import type { Location } from '../../src/core/domain';
+import type { PermissionState } from '../../src/core/ports';
 import { ok } from '../../src/core/result';
 import { createInitialState, ViewStateStore } from '../../src/core/store';
 import type { ViewState } from '../../src/core/store';
@@ -13,9 +14,9 @@ import type { UiController } from '../../src/ui/context';
 import { sampleForecast, sampleLocation } from '../fixtures/domain';
 import {
   FakeClock,
-  FakeGeocodingProvider,
-  FakeLocationService,
-  FakeWeatherProvider,
+  LegacyFakeGeocodingProvider,
+  LegacyFakeLocationService,
+  LegacyFakeWeatherProvider,
   InMemoryKeyValueStore,
 } from '../fakes';
 
@@ -65,7 +66,7 @@ export function renderWithFakeController(initial: Partial<ViewState> = {}, confi
 }
 
 export interface StackOptions {
-  readonly permission?: 'granted' | 'prompt' | 'denied' | 'unsupported';
+  readonly permission?: PermissionState;
   readonly withReverse?: boolean;
   readonly kv?: InMemoryKeyValueStore;
   readonly config?: Config;
@@ -74,9 +75,9 @@ export interface StackOptions {
 /** The real core and controller over the fakes of TASK-012. */
 export function createStack(options: StackOptions = {}) {
   const kv = options.kv ?? new InMemoryKeyValueStore();
-  const geocoding = new FakeGeocodingProvider({ withReverse: options.withReverse ?? false });
-  const weather = new FakeWeatherProvider();
-  const location = new FakeLocationService(options.permission ?? 'prompt');
+  const geocoding = new LegacyFakeGeocodingProvider({ withReverse: options.withReverse ?? false });
+  const weather = new LegacyFakeWeatherProvider();
+  const location = new LegacyFakeLocationService(options.permission ?? 'prompt');
   const clock = new FakeClock();
   weather.currentScript.respondWith(ok({ temperatureC: 21.5, humidityPct: 60, condition: 'PARTLY_CLOUDY' }));
   weather.forecastScript.respondWith(ok(sampleForecast));
@@ -100,7 +101,6 @@ export function renderStack(options: StackOptions = {}) {
       store={stack.store}
       controller={stack.controller}
       config={stack.config}
-      demo={stack.demo}
       unconfigured={stack.unconfigured}
     />,
   );

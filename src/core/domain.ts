@@ -7,6 +7,7 @@
  * never a default such as 0.
  */
 import type { AppError } from './errors';
+import type { Result } from './result';
 
 export type TemperatureUnit = 'C' | 'F';
 
@@ -14,6 +15,7 @@ export const CONDITION_CODES = [
   'CLEAR',
   'PARTLY_CLOUDY',
   'CLOUDY',
+  'DRIZZLE',
   'RAIN',
   'SNOW',
   'THUNDERSTORM',
@@ -28,9 +30,9 @@ export type LocationSource = 'search' | 'device';
 
 export interface Location {
   /**
-   * Favorites identity key (ODD-7). Derived by the identity function (TASK-008):
-   * "<providerId>:<placeId>" when a place ID exists, else a normalized
-   * name|admin1|country string. Never derived from coordinates.
+   * Favorites identity key (architecture 3.4). Derived by the identity function: the normalized
+   * name|admin1|country string, independent of the provider and its place ID. Never derived from coordinates.
+   * The key of an unresolved device location is an opaque counter value.
    */
   readonly key: string;
   readonly name: string;
@@ -55,6 +57,8 @@ export interface CurrentWeather {
   readonly condition?: ConditionCode;
   /** Provider text, used as label fallback for UNKNOWN conditions. */
   readonly conditionText?: string;
+  /** True by day, false by night, absent when the provider does not say (selects the day/night icon and text). */
+  readonly isDay?: boolean;
   readonly observedAt?: Date;
 }
 
@@ -83,4 +87,81 @@ export interface WeatherSnapshot {
   readonly location: Location;
   readonly current: Section<CurrentWeather>;
   readonly forecast: Section<ForecastDay[]>;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Approved domain model (architecture 3.1, impl-plan T-12). Provider- and platform-neutral.
+//
+// The types ABOVE this line (`Location`, `CurrentWeather`, `ForecastDay`, `Section`, `WeatherSnapshot`) are the
+// pre-approval model that the existing services, controller, UI and adapters still use. They are retired by the
+// Phase 2+ tasks that rewrite those consumers (T-20 weather service, T-22 favorites, T-26 location flow, T-27
+// controller, T-30/T-31 adapters, T-60 UI). The types BELOW are the target model: nothing in the old code has been
+// changed to depend on them yet, except that `Coordinates` now lives here (the location-service port re-exports it).
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Decimal degrees. */
+export interface Coordinates {
+  readonly lat: number;
+  readonly lon: number;
+}
+
+/**
+ * A named location returned by a geocoder. The ONLY thing that can be saved as a favorite. `key` is the
+ * provider-independent identity rule of architecture 3.4 (set by the favorites service, T-22).
+ */
+export interface Place {
+  readonly key: string;
+  /** Provider identifier, stored for information only; never part of the identity rule. */
+  readonly providerId?: string;
+  readonly name: string;
+  readonly admin1?: string;
+  readonly country?: string;
+  /** City-level coordinates from the geocoder (U3 as approved). */
+  readonly centroid: Coordinates;
+  /** IANA name from the geocoder, used only before the first weather response supplies the time zone. */
+  readonly timeZoneHint?: string;
+}
+
+/**
+ * What the user is looking at. A device location keeps its coordinates in memory only: `deviceCoords` is never part of
+ * a `Place`, so a type that accepts only `Place` (the favorites API, T-22) cannot be given device coordinates.
+ */
+export type SelectedLocation =
+  | { readonly kind: 'place'; readonly place: Place; readonly origin: 'search' | 'favorite' }
+  | { readonly kind: 'device'; readonly deviceCoords: Coordinates; readonly place?: Place };
+
+/** Provider-independent weather condition category (`DRIZZLE` is part of `ConditionCode`). */
+export type ConditionCategory = ConditionCode;
+
+/** Current conditions. Every field may be absent and then renders as the "unavailable" label. */
+export interface Current {
+  /** Degrees Celsius (the canonical unit). */
+  readonly tempCanonical?: number;
+  /** Percent, 0-100. */
+  readonly humidityPct?: number;
+  readonly conditionCategory?: ConditionCategory;
+  /** True by day, false by night, absent when the provider does not say. */
+  readonly isDay?: boolean;
+}
+
+/** One forecast day. */
+export interface Day {
+  /** Calendar date at the location, "YYYY-MM-DD", taken from the provider's date strings. */
+  readonly localDate: string;
+  /** Degrees Celsius. */
+  readonly highCanonical?: number;
+  /** Degrees Celsius. */
+  readonly lowCanonical?: number;
+  readonly conditionCategory?: ConditionCategory;
+}
+
+/**
+ * Result of one weather request. The two sections succeed or fail independently; a transport, timeout or rate-limit
+ * failure fails the whole `get` instead (architecture 3.1, DR-19).
+ */
+export interface WeatherResult {
+  /** IANA time zone from the weather response, when the provider returns one. */
+  readonly timeZone?: string;
+  readonly current: Result<Current, AppError>;
+  readonly forecast: Result<Day[], AppError>;
 }

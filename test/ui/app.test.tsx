@@ -85,19 +85,10 @@ describe('App shell (TASK-026)', () => {
     expect(container.querySelector('.app')?.getAttribute('data-layout')).toBe('wide');
   });
 
-  it('shows the demo notice only in demo mode', () => {
-    const store = new ViewStateStore(createInitialState());
-    const config = createConfig();
-    const { rerender } = render(<App store={store} controller={makeFakeController()} config={config} />);
-    expect(screen.queryByRole('note')).toBeNull();
-    rerender(<App store={store} controller={makeFakeController()} config={config} demo />);
-    expect(screen.getByRole('note').textContent).toContain('Demo mode');
-  });
-
   it('shows empty states before anything is chosen', () => {
     renderWithFakeController();
     expect(screen.getByText('Search for a city or use your location to see the weather.')).toBeTruthy();
-    expect(screen.getByText('No favorites yet.')).toBeTruthy();
+    expect(screen.getByText('No favorites yet. Search for a city and choose Add to favorites.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Refresh' })).toBeNull();
   });
 });

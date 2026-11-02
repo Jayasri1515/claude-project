@@ -9,6 +9,7 @@ describe('domain model', () => {
       'CLEAR',
       'PARTLY_CLOUDY',
       'CLOUDY',
+      'DRIZZLE',
       'RAIN',
       'SNOW',
       'THUNDERSTORM',

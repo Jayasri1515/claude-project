@@ -1,194 +1,114 @@
 /**
- * TASK-040: responsive layout in real browsers (Edge and Chrome via Playwright).
- * Covers AC-007-1, AC-007-4, FR-040, FR-043, NFR-002 at 320, 768, 1280 and 1920 px.
- * Demo mode (invented data). Breakpoints come from Config (wide >= 768, extra-wide >= 1024).
+ * Responsive layout in real browsers, on the RELEASE build (impl-plan T-63, REQ-WF7-04, REQ-WF7-01).
+ * Viewports 320, 767, 768, 1023 and 1024 px (and 1280): no horizontal scroll in the states that carry the most
+ * content, one column below 768 px, two columns from 768 px, three from 1024 px (architecture breakpoints
+ * wide = 768 and extraWide = 1024, src/core/config.ts), and every control at least 44 by 44 CSS px (height only for
+ * links in running text). Open-Meteo is answered from recordings (e2e/support.ts); the device location is refused
+ * so every state starts from the plain search state.
  */
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
+import { denyDeviceLocation, expectNoHorizontalScroll, expectRealApp, routeOpenMeteo, searchBerlin, showBerlinWeather } from './support';
 
-const VIEWPORTS = [
-  { width: 320, layout: 'narrow' },
-  { width: 768, layout: 'wide' },
-  { width: 1280, layout: 'extra-wide' },
-  { width: 1920, layout: 'extra-wide' },
-] as const;
+const WIDTHS = [320, 767, 768, 1023, 1024, 1280] as const;
+/** Columns of the page grid per viewport width: 1 below 768, 2 from 768, 3 from 1024. */
+const columnsAt = (width: number): number => (width >= 1024 ? 3 : width >= 768 ? 2 : 1);
 
-async function showWeather(page: Page): Promise<void> {
-  await page.getByLabel('City name').fill('Testville');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  const current = page.getByRole('region', { name: 'Current weather' });
-  await expect(current.getByText('Temperature')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole('region', { name: 'Forecast' }).getByRole('listitem')).toHaveCount(3, { timeout: 10_000 });
-  await page.getByRole('button', { name: 'Add to favorites' }).click();
-  await expect(page.getByRole('region', { name: 'Favorites' }).getByRole('listitem')).toHaveCount(1);
+async function gridColumns(page: Page): Promise<number> {
+  return page.evaluate(() => getComputedStyle(document.querySelector('.app-main') as Element).gridTemplateColumns.split(' ').length);
 }
 
-type PanelName = 'search' | 'current' | 'forecast' | 'favorites';
-
-interface Box {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  right: number;
-  bottom: number;
-}
-
-async function panelBoxes(page: Page): Promise<Record<PanelName, Box>> {
+/** Visible controls smaller than 44 px (links: height only), as readable descriptions. */
+async function smallTargets(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const box = (selector: string) => {
-      const r = (document.querySelector(selector) as HTMLElement).getBoundingClientRect();
-      return { x: r.x, y: r.y + window.scrollY, width: r.width, height: r.height, right: r.right, bottom: r.bottom + window.scrollY };
-    };
-    return {
-      search: box('.panel-search'),
-      current: box('.panel-current'),
-      forecast: box('.panel-forecast'),
-      favorites: box('.panel-favorites'),
-    };
+    const small: string[] = [];
+    for (const el of Array.from(document.querySelectorAll('button, a[href], input, select, summary'))) {
+      // A radio button or checkbox is operated through its label, which is the touch target.
+      const isCheck = el instanceof HTMLInputElement && (el.type === 'radio' || el.type === 'checkbox');
+      const box = (isCheck ? el.closest('label') ?? el : el).getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue; // not rendered
+      const isLink = el.tagName === 'A';
+      if (box.height < 43.5 || (!isLink && box.width < 43.5)) {
+        small.push(`${el.tagName.toLowerCase()} "${(el.textContent ?? '').trim().slice(0, 30)}" ${Math.round(box.width)}x${Math.round(box.height)}`);
+      }
+    }
+    return small;
   });
 }
 
-/** Panel names in the order a reader sees them: top to bottom, and left to right within a row. */
-function readingOrder(boxes: Record<PanelName, Box>): PanelName[] {
-  const names = Object.keys(boxes) as PanelName[];
-  return names.sort((a, c) => (Math.abs(boxes[a].y - boxes[c].y) < 1 ? boxes[a].x - boxes[c].x : boxes[a].y - boxes[c].y));
+async function setUp(page: Page, baseURL: string | undefined, width: number): Promise<void> {
+  await routeOpenMeteo(page, new URL(baseURL ?? 'http://localhost').origin);
+  await denyDeviceLocation(page);
+  await page.setViewportSize({ width, height: 900 });
+  await page.goto('./');
+  await expectRealApp(page);
 }
 
-for (const { width, layout } of VIEWPORTS) {
-  test.describe(`viewport ${width}px`, () => {
-    test.use({ viewport: { width, height: 900 } });
+test.describe('release build layout (320, 767, 768, 1023, 1024, 1280 px)', () => {
+  for (const width of WIDTHS) {
+    test(`${width}px: columns follow the breakpoints; no horizontal scroll in the initial, pick-list, weather and favorites states; targets are 44 px`, async ({ page, baseURL }) => {
+      await setUp(page, baseURL, width);
+      await expect(page.getByText('Location access is turned off for this site.')).toBeVisible();
 
-    test(`tier is ${layout}, no horizontal scroll before and after weather loads, nothing clipped`, async ({ page }) => {
-      await page.goto('/');
-      await expect(page.getByRole('heading', { level: 1, name: 'Weather' })).toBeVisible();
-      await expect(page.locator('.app')).toHaveAttribute('data-layout', layout);
+      expect(await gridColumns(page), `${width}px grid columns`).toBe(columnsAt(width));
+      await expectNoHorizontalScroll(page, `${width}px initial (location refused)`);
+      expect(await smallTargets(page), `${width}px initial`).toEqual([]);
 
-      const overflow = () =>
-        page.evaluate(() => ({
-          doc: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-          body: document.body.scrollWidth - document.documentElement.clientWidth,
-        }));
-      expect(await overflow()).toEqual({ doc: 0, body: 0 });
+      await searchBerlin(page);
+      await expect(page.getByRole('group', { name: /Several places match/ }).getByRole('button')).toHaveCount(3);
+      await expectNoHorizontalScroll(page, `${width}px pick list`);
+      expect(await smallTargets(page), `${width}px pick list`).toEqual([]);
 
-      await showWeather(page);
-      expect(await overflow()).toEqual({ doc: 0, body: 0 });
+      await page.getByRole('group', { name: /Several places match/ }).getByRole('button', { name: 'Berlin, State of Berlin, Germany' }).click();
+      await expect(page.getByRole('region', { name: 'Forecast' }).getByRole('listitem')).toHaveCount(3);
+      await page.getByRole('button', { name: 'Add to favorites' }).click();
+      await expect(page.getByRole('region', { name: 'Favorites' }).getByRole('listitem')).toHaveCount(1);
+      await expectNoHorizontalScroll(page, `${width}px weather and favorites`);
+      expect(await smallTargets(page), `${width}px weather and favorites`).toEqual([]);
 
-      const boxes = await panelBoxes(page);
-      for (const [name, b] of Object.entries(boxes)) {
-        expect(b.x, `${name} left edge`).toBeGreaterThanOrEqual(0);
-        expect(b.right, `${name} right edge`).toBeLessThanOrEqual(width + 0.5);
-        expect(b.width, `${name} width`).toBeGreaterThan(150);
+      // Every panel stays inside the viewport and none overlaps another one in the same column.
+      const panels = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('.app-main > section')).map((el) => {
+          const r = el.getBoundingClientRect();
+          return { name: el.className, left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+        }),
+      );
+      expect(panels).toHaveLength(4);
+      for (const p of panels) {
+        expect(p.left, `${width}px ${p.name} left edge`).toBeGreaterThanOrEqual(-0.5);
+        expect(p.right, `${width}px ${p.name} right edge`).toBeLessThanOrEqual(width + 0.5);
+      }
+      for (let i = 0; i < panels.length; i++) {
+        for (let j = i + 1; j < panels.length; j++) {
+          const a = panels[i];
+          const b = panels[j];
+          if (a === undefined || b === undefined) continue;
+          const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1;
+          const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+          expect(overlapX && overlapY, `${width}px: ${a.name} overlaps ${b.name}`).toBe(false);
+        }
+      }
+      if (columnsAt(width) === 1) {
+        // One column: the panels are stacked in reading order with the same left edge.
+        for (let i = 1; i < panels.length; i++) {
+          expect(panels[i]?.left, `${width}px panel ${i} aligned`).toBeCloseTo(panels[0]?.left ?? 0, 0);
+          expect(panels[i]?.top ?? 0, `${width}px panel ${i} below the previous one`).toBeGreaterThanOrEqual((panels[i - 1]?.bottom ?? 0) - 0.5);
+        }
       }
     });
+  }
 
-    test('arrangement matches the tier, and the visual reading order equals the DOM order (C3)', async ({ page }) => {
-      await page.goto('/');
-      await showWeather(page);
-      const b = await panelBoxes(page);
-      const sameColumn = (a: Box, c: Box) => Math.abs(a.x - c.x) < 1;
-      const sameRow = (a: Box, c: Box) => Math.abs(a.y - c.y) < 1;
-      if (layout === 'narrow') {
-        // One column, in DOM order.
-        expect(sameColumn(b.search, b.current) && sameColumn(b.current, b.forecast) && sameColumn(b.forecast, b.favorites)).toBe(true);
-        expect(b.search.y).toBeLessThan(b.current.y);
-        expect(b.current.y).toBeLessThan(b.forecast.y);
-        expect(b.forecast.y).toBeLessThan(b.favorites.y);
-      } else if (layout === 'wide') {
-        // Two columns, filled row by row: [search, current] then [forecast, favorites].
-        expect(sameRow(b.search, b.current)).toBe(true);
-        expect(sameRow(b.forecast, b.favorites)).toBe(true);
-        expect(sameColumn(b.search, b.forecast)).toBe(true);
-        expect(sameColumn(b.current, b.favorites)).toBe(true);
-        expect(b.current.x).toBeGreaterThan(b.search.right - 1);
-        expect(b.forecast.y).toBeGreaterThan(Math.max(b.search.bottom, b.current.bottom) - 1);
-      } else {
-        // Three columns: [search, current, forecast] in the first row, favorites in the second row under search.
-        expect(sameRow(b.search, b.current) && sameRow(b.current, b.forecast)).toBe(true);
-        expect(b.current.x).toBeGreaterThan(b.search.right - 1);
-        expect(b.forecast.x).toBeGreaterThan(b.current.right - 1);
-        expect(sameColumn(b.search, b.favorites)).toBe(true);
-        expect(b.favorites.y).toBeGreaterThan(Math.max(b.search.bottom, b.current.bottom, b.forecast.bottom) - 1);
-      }
-
-      // In every tier, reading the panels top-to-bottom, then left-to-right, gives exactly the DOM order.
-      // (The DOM order is also the tab order: search, current, forecast, favorites.)
-      expect(readingOrder(b)).toEqual(['search', 'current', 'forecast', 'favorites']);
-    });
-
-    test('the footer is below every panel, inside the viewport width, and its links are not clipped (TASK-025)', async ({ page }) => {
-      await page.goto('/');
-      await showWeather(page);
-      const footer = page.getByRole('contentinfo');
-      await expect(footer).toBeVisible();
-      const geometry = await page.evaluate(() => {
-        const f = (document.querySelector('footer.app-footer') as HTMLElement).getBoundingClientRect();
-        const panels = Array.from(document.querySelectorAll('.panel')).map((p) => p.getBoundingClientRect().bottom + window.scrollY);
-        return { top: f.top + window.scrollY, left: f.left, right: f.right, width: f.width, lowestPanelBottom: Math.max(...panels) };
-      });
-      expect(geometry.top).toBeGreaterThanOrEqual(geometry.lowestPanelBottom - 1);
-      expect(geometry.left).toBeGreaterThanOrEqual(0);
-      expect(geometry.right).toBeLessThanOrEqual(width + 0.5);
-      for (const link of await footer.getByRole('link').all()) {
-        const box = await link.boundingBox();
-        expect(box?.x ?? -1).toBeGreaterThanOrEqual(0);
-        expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(width + 0.5);
-      }
-    });
-
-    test('demo mode: the weather panels show data but carry no Open-Meteo credit, and the page holds no link besides the notices file (TASK-025)', async ({ page }) => {
-      await page.goto('/');
-      await showWeather(page);
-      await expect(page.locator('.panel-credit')).toHaveCount(0);
-      await expect(page.locator('.panel-current a, .panel-forecast a')).toHaveCount(0);
-      await expect(page.locator('a[href*="open-meteo"]')).toHaveCount(0);
-    });
-
-    test('the keyboard Tab sequence visits the panels in the same order they appear on screen (C3)', async ({ page }) => {
-      await page.goto('/');
-      await showWeather(page);
-      // Start at the page title (the top of the page) and Tab forward once through everything, noting the panel of each stop.
-      await page.locator('h1').focus();
-      const visited: string[] = [];
-      for (let i = 0; i < 40; i += 1) {
-        await page.keyboard.press('Tab');
-        const panel = await page.evaluate(() => {
-          const el = document.activeElement as HTMLElement | null;
-          const match = el?.closest('.panel')?.className.match(/panel-(search|current|forecast|favorites)/);
-          return match?.[1] ?? null;
-        });
-        if (panel === null || visited[visited.length - 1] === panel) continue;
-        if (visited.includes(panel)) break; // focus came back round to a panel already visited: one full pass is done
-        visited.push(panel);
-      }
-      expect(visited.length).toBeGreaterThanOrEqual(3); // search, current (Refresh), favorites at least
-      // The panels in the order Tab reached them must be ordered the same way on screen.
-      const onScreen = readingOrder(await panelBoxes(page)).filter((name) => visited.includes(name));
-      expect(visited).toEqual(onScreen);
-      // And that is also the DOM order (no panel is visited twice or out of sequence).
-      expect(visited).toEqual(['search', 'current', 'forecast', 'favorites'].filter((name) => visited.includes(name)));
-    });
-
-    test('long place names and messages wrap instead of widening the page', async ({ page }) => {
-      await page.goto('/');
-      await showWeather(page);
-      // Inject an unbroken 120-character name into the favorites button text to simulate a long name.
-      await page.evaluate(() => {
-        const target = document.querySelector('.favorite-select') as HTMLElement;
-        target.textContent = 'W'.repeat(120);
-      });
-      const diff = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-      expect(diff).toBe(0);
-    });
+  test('the layout switches at the breakpoints when the window is resized (767 -> 768 -> 1024 and back) with the weather kept', async ({ page, baseURL }) => {
+    await setUp(page, baseURL, 767);
+    await showBerlinWeather(page);
+    const seen: Array<[number, number]> = [];
+    for (const width of [767, 768, 1023, 1024, 1023, 768, 767, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => gridColumns(page), { message: `columns at ${width}px` }).toBe(columnsAt(width));
+      seen.push([width, await gridColumns(page)]);
+      await expectNoHorizontalScroll(page, `${width}px after resize`);
+      await expect(page.getByRole('region', { name: 'Current weather' }).getByRole('heading', { name: 'Berlin, State of Berlin, Germany' })).toBeVisible();
+    }
+    expect(seen).toEqual([[767, 1], [768, 2], [1023, 2], [1024, 3], [1023, 2], [768, 2], [767, 1], [320, 1]]);
   });
-}
-
-test('the tier follows the window when it is resized', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto('/');
-  await expect(page.locator('.app')).toHaveAttribute('data-layout', 'extra-wide');
-  await page.setViewportSize({ width: 800, height: 800 });
-  await expect(page.locator('.app')).toHaveAttribute('data-layout', 'wide');
-  await page.setViewportSize({ width: 360, height: 800 });
-  await expect(page.locator('.app')).toHaveAttribute('data-layout', 'narrow');
 });

@@ -36,7 +36,7 @@ describe('LocalStorageStore', () => {
     });
     for (const result of [store.get('k'), store.set('k', 'v'), store.remove('k')]) {
       expect(result.ok).toBe(false);
-      expect(!result.ok && result.error.code).toBe('STORAGE_UNAVAILABLE');
+      expect(!result.ok && result.error.kind).toBe('storage_unavailable');
     }
   });
 
@@ -47,7 +47,7 @@ describe('LocalStorageStore', () => {
     };
     const store = new LocalStorageStore(() => storage);
     const r = store.set('k', 'v');
-    expect(!r.ok && r.error.code).toBe('STORAGE_UNAVAILABLE');
+    expect(!r.ok && r.error.kind).toBe('storage_unavailable');
     expect(store.get('k')).toEqual({ ok: true, value: undefined });
   });
 
@@ -62,8 +62,8 @@ describe('LocalStorageStore', () => {
     const store = new LocalStorageStore(() => storage);
     const g = store.get('k');
     const r = store.remove('k');
-    expect(!g.ok && g.error.code).toBe('STORAGE_UNAVAILABLE');
-    expect(!r.ok && r.error.code).toBe('STORAGE_UNAVAILABLE');
+    expect(!g.ok && g.error.kind).toBe('storage_unavailable');
+    expect(!r.ok && r.error.kind).toBe('storage_unavailable');
   });
 
   it('error results carry no thrown detail', () => {

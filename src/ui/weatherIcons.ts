@@ -9,9 +9,22 @@
  *
  * The table is a `Record<ConditionCode, ...>`, so adding a ConditionCode without an icon fails the type check;
  * `test/ui/weatherIcon.test.tsx` also checks it at run time. UNKNOWN has a neutral "question mark" icon.
+ * Clear and partly cloudy also have a night variant (Moon, CloudMoon), used in the current-weather card only.
  * An icon never carries meaning alone: the condition text is always shown (see ConditionView).
  */
-import { Cloud, CloudFog, CloudLightning, CloudRain, CloudSnow, CloudSun, CircleQuestionMark, Sun } from 'lucide-react';
+import {
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudMoon,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  CircleQuestionMark,
+  Moon,
+  Sun,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ConditionCode } from '../core/domain';
 
@@ -19,9 +32,16 @@ export const CONDITION_ICONS: Readonly<Record<ConditionCode, LucideIcon>> = {
   CLEAR: Sun,
   PARTLY_CLOUDY: CloudSun,
   CLOUDY: Cloud,
+  DRIZZLE: CloudDrizzle,
   RAIN: CloudRain,
   SNOW: CloudSnow,
   THUNDERSTORM: CloudLightning,
   FOG: CloudFog,
   UNKNOWN: CircleQuestionMark,
+};
+
+/** Night variants: only these two conditions have one (architecture Section 7 item 8). */
+export const NIGHT_CONDITION_ICONS: Readonly<Partial<Record<ConditionCode, LucideIcon>>> = {
+  CLEAR: Moon,
+  PARTLY_CLOUDY: CloudMoon,
 };

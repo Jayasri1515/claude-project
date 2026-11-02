@@ -3,20 +3,22 @@
  * AC-004-5). Shows exactly `Config.forecastDays` rows: real days first, then
  * "unavailable" rows. Dates are the provider's calendar dates at the location
  * and are shown as plain calendar dates, so the device time zone cannot shift
- * them.
+ * them. When today is the first forecast day (Config.forecastIncludesToday) the first row is labelled "Today"
+ * (M-30); the adapter always asks for the location's own time zone, so day 0 is the location's today.
  *
  * States: nothing chosen, loading, rows, error (polite live region that is
  * always present, with Retry; Retry moves focus to the section heading first
  * because the error block is replaced by the loading state), and "has not
  * loaded" for a section that is idle with no data.
  */
-import { formatDataFrom, formatForecastDate, formatForecastRange } from '../core/format';
+import { formatForecastDate, formatForecastRange } from '../core/format';
 import { padForecast } from '../core/forecast';
-import { message, messageForError } from '../core/messages';
+import { message } from '../core/messages';
 import { useRefreshAction, useUi, useViewState } from './context';
 import { ConditionView } from './ConditionView';
 import { LiveMessage } from './LiveMessage';
 import { focusById, SECTIONS } from './sections';
+import { sectionFailureText } from './sectionFailure';
 import { unavailable } from './useGuardedAction';
 import { WeatherCredit } from './WeatherCredit';
 
@@ -36,6 +38,7 @@ export function ForecastList() {
   const section = snapshot.forecast;
   const loading = section.status === 'loading';
   const failed = section.status === 'error' && section.error !== undefined;
+  const failure = sectionFailureText(section, snapshot.current, 'ui.forecast.loadFailed');
   const showRows = section.data !== undefined || section.status === 'ready';
   const slots = padForecast(section.data ?? [], config.forecastDays);
 
@@ -56,13 +59,16 @@ export function ForecastList() {
           {slots.map((slot, index) =>
             slot.kind === 'day' ? (
               <li key={`${slot.day.date}-${index}`}>
+                {index === 0 && config.forecastIncludesToday ? (
+                  <span className="forecast-today">{message('ui.forecast.today')}</span>
+                ) : null}
                 <span className="forecast-date">{formatForecastDate(slot.day.date)}</span>
-                <ConditionView condition={slot.day.condition} text={slot.day.conditionText} />
+                <ConditionView condition={slot.day.condition} text={slot.day.conditionText} surface="forecast" />
                 <span className="forecast-range">{formatForecastRange(slot.day, temperatureUnit)}</span>
               </li>
             ) : (
               <li key={`unavailable-${index}`} className="forecast-unavailable">
-                {message('ui.forecast.dayUnavailable')}
+                {message('ui.unavailable')}
               </li>
             ),
           )}
@@ -70,12 +76,10 @@ export function ForecastList() {
       ) : null}
       <WeatherCredit showing={section.data !== undefined && section.data.length > 0} />
       <LiveMessage className="section-status">
-        {failed && section.error !== undefined ? (
+        {failure !== undefined ? (
           <>
-            <p className="error-text">{messageForError(section.error)}</p>
-            {section.data !== undefined && section.updatedAt !== undefined ? (
-              <p className="note">{formatDataFrom(section.updatedAt)}</p>
-            ) : null}
+            {failure.staleNote !== undefined ? <p className="note">{failure.staleNote}</p> : null}
+            <p className="error-text">{failure.text}</p>
           </>
         ) : null}
       </LiveMessage>

@@ -21,7 +21,7 @@ import {
  * small edit of one. Nothing calls the live API: `fetch` is always a stub.
  */
 function codeOf<T>(result: Result<T, AppError>): string | undefined {
-  return result.ok ? undefined : result.error.code;
+  return result.ok ? undefined : result.error.kind;
 }
 
 afterEach(() => {
@@ -36,7 +36,7 @@ describe('OpenMeteoGeocodingProvider.search: success (recorded response)', () =>
     if (!result.ok) return;
     expect(result.value).toHaveLength(3);
     expect(result.value[0]).toEqual({
-      key: 'open-meteo:2950159',
+      key: 'berlin|state of berlin|germany',
       name: 'Berlin',
       admin1: 'State of Berlin',
       country: 'Germany',
@@ -103,7 +103,7 @@ describe('OpenMeteoGeocodingProvider.search: missing or unusable fields', () => 
     expect(location).not.toHaveProperty('timezone');
     expect(location).not.toHaveProperty('placeId');
     // Without a place id the key falls back to the normalized name (architecture 4.7).
-    expect(location?.key).toBe('name:berlin||');
+    expect(location?.key).toBe('berlin||');
   });
 
   it('treats empty strings and null as absent', () => {
@@ -149,24 +149,30 @@ describe('OpenMeteoGeocodingProvider.search: failures map to the error model', (
 
   it('the recorded HTTP 400 error body is SERVICE_UNAVAILABLE and its reason text never escapes', async () => {
     const result = await search(() => fixtureResponse('geocoding-error-400.json', 400));
-    expect(codeOf(result)).toBe('SERVICE_UNAVAILABLE');
+    expect(codeOf(result)).toBe('service');
     expect(JSON.stringify(result)).not.toContain('Parameter count');
   });
 
-  it.each([404, 429, 500, 502, 503])('HTTP %i is SERVICE_UNAVAILABLE', async (status) => {
-    expect(codeOf(await search(() => jsonResponse({ error: true, reason: 'secret internal detail' }, status)))).toBe('SERVICE_UNAVAILABLE');
+  it.each([404, 500, 502, 503])('HTTP %i is SERVICE_UNAVAILABLE', async (status) => {
+    expect(codeOf(await search(() => jsonResponse({ error: true, reason: 'secret internal detail' }, status)))).toBe('service');
+  });
+
+  it('HTTP 429 is RATE_LIMITED (architecture 5.4) and the error body never escapes', async () => {
+    const result = await search(() => jsonResponse({ error: true, reason: 'secret internal detail' }, 429));
+    expect(codeOf(result)).toBe('rate_limited');
+    expect(JSON.stringify(result)).not.toContain('secret');
   });
 
   it('HTTP 200 with { error: true } is SERVICE_UNAVAILABLE', async () => {
-    expect(codeOf(await search(() => jsonResponse({ error: true, reason: 'x' })))).toBe('SERVICE_UNAVAILABLE');
+    expect(codeOf(await search(() => jsonResponse({ error: true, reason: 'x' })))).toBe('service');
   });
 
   it.each([
     ['not JSON', '<html>gateway error</html>'],
     ['truncated JSON', fixtureText('geocoding-berlin.json').slice(0, 100)],
     ['empty body', ''],
-  ])('malformed body (%s) is SERVICE_UNAVAILABLE', async (_label, body) => {
-    expect(codeOf(await search(() => jsonResponse(body)))).toBe('SERVICE_UNAVAILABLE');
+  ])('malformed body (%s) is INVALID_RESPONSE (M-06)', async (_label, body) => {
+    expect(codeOf(await search(() => jsonResponse(body)))).toBe('invalid_response');
   });
 
   it.each([
@@ -175,15 +181,15 @@ describe('OpenMeteoGeocodingProvider.search: failures map to the error model', (
     ['a string', 'Berlin'],
     ['results is an object', { results: {} }],
     ['results is a string', { results: 'none' }],
-  ])('well-formed JSON of the wrong shape (%s) is SERVICE_UNAVAILABLE', async (_label, body) => {
-    expect(codeOf(await search(() => jsonResponse(JSON.stringify(body))))).toBe('SERVICE_UNAVAILABLE');
+  ])('well-formed JSON of the wrong shape (%s) is INVALID_RESPONSE (M-06)', async (_label, body) => {
+    expect(codeOf(await search(() => jsonResponse(JSON.stringify(body))))).toBe('invalid_response');
   });
 
   it('a network failure is NETWORK and carries no message from the exception', async () => {
     const result = await search(() => {
       throw new TypeError('Failed to fetch https://secret.example/?key=abc');
     });
-    expect(codeOf(result)).toBe('NETWORK');
+    expect(codeOf(result)).toBe('network');
     expect(JSON.stringify(result)).not.toContain('secret.example');
   });
 
@@ -193,7 +199,7 @@ describe('OpenMeteoGeocodingProvider.search: failures map to the error model', (
         throw new Error('boom');
       },
     });
-    expect(codeOf(await provider.search('Berlin', 5))).toBe('NETWORK');
+    expect(codeOf(await provider.search('Berlin', 5))).toBe('network');
   });
 });
 
@@ -203,7 +209,7 @@ describe('OpenMeteoGeocodingProvider.search: abort and timeout', () => {
     const controller = new AbortController();
     controller.abort();
     const result = await new OpenMeteoGeocodingProvider({ fetch }).search('Berlin', 5, controller.signal);
-    expect(result.ok).toBe(false);
+    expect(codeOf(result)).toBe('aborted'); // DR-09: the app's own abort is not a service error
     expect(calls).toHaveLength(0);
   });
 
@@ -217,7 +223,7 @@ describe('OpenMeteoGeocodingProvider.search: abort and timeout', () => {
     const pending = new OpenMeteoGeocodingProvider({ fetch }).search('Berlin', 5, controller.signal);
     controller.abort();
     const result = await pending;
-    expect(result.ok).toBe(false);
+    expect(codeOf(result)).toBe('aborted');
     expect(seen?.aborted).toBe(true);
   });
 
@@ -226,7 +232,17 @@ describe('OpenMeteoGeocodingProvider.search: abort and timeout', () => {
     const controller = new AbortController();
     const pending = new OpenMeteoGeocodingProvider({ fetch }).search('Berlin', 5, controller.signal);
     controller.abort();
-    expect((await pending).ok).toBe(false);
+    expect(codeOf(await pending)).toBe('aborted');
+  });
+
+  it('a caller abort is never TIMEOUT or NETWORK, and the aborted error has no message key', async () => {
+    const { fetch } = stubFetch((call) => abortableHang(call.init));
+    const controller = new AbortController();
+    const pending = new OpenMeteoGeocodingProvider({ fetch, timeoutMs: 10_000 }).search('Berlin', 5, controller.signal);
+    controller.abort();
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toEqual({ kind: 'aborted' });
   });
 
   it('a request that outlives timeoutMs is TIMEOUT, and the fetch is aborted', async () => {
@@ -240,7 +256,7 @@ describe('OpenMeteoGeocodingProvider.search: abort and timeout', () => {
     await vi.advanceTimersByTimeAsync(9_999);
     expect(seen?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
-    expect(codeOf(await pending)).toBe('TIMEOUT');
+    expect(codeOf(await pending)).toBe('timeout');
     expect(seen?.aborted).toBe(true);
   });
 
@@ -299,6 +315,13 @@ describe('OpenMeteoGeocodingProvider.search: request construction (HTTPS only, e
     expect(call?.init.credentials).toBe('omit');
     expect(call?.init.referrerPolicy).toBe('no-referrer');
     expect(call?.url).not.toMatch(/api[_-]?key|apikey|token|secret/i);
+  });
+
+  it('sends the request with cache "no-store", so a cached search answer is never reused (architecture 3.9, R10)', async () => {
+    const { fetch, calls } = stubFetch(() => jsonResponse({}));
+    await new OpenMeteoGeocodingProvider({ fetch }).search('Berlin', 5);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init.cache).toBe('no-store');
   });
 
   it.each([

@@ -2,6 +2,8 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gzipSync } from 'node:zlib';
+import { checkCsp } from './csp.mjs';
 import { scanDemoFileName, scanDemoMarkers } from './demoMarkers.mjs';
 import { scanText } from './secretScan.mjs';
 
@@ -9,6 +11,17 @@ import { scanText } from './secretScan.mjs';
 export const TEXT_EXTENSIONS = /\.(?:js|mjs|cjs|css|html?|map|json|txt|svg|xml|webmanifest|manifest|md)$/i;
 /** Known binary types: not read, but listed in the result (a secret inside an image or font is not looked for). */
 export const BINARY_EXTENSIONS = /\.(?:png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|eot|wasm|pdf|zip|gz|br|mp3|mp4|webm)$/i;
+
+/**
+ * Initial JavaScript budget, gzipped, in bytes. Duplicated from DEFAULT_CONFIG.bundleBudgetGzipBytes in
+ * src/core/config.ts (this plain-JavaScript script cannot import the TypeScript source);
+ * test/security/scanDist.test.ts fails if the two differ.
+ */
+export const BUNDLE_BUDGET_GZIP_BYTES = 200_000;
+/** A file name that is a service worker or its generated helper (sw.js, service-worker.js, registerSW.js, workbox-*.js). */
+export const SERVICE_WORKER_FILE = /^(?:sw|service-?worker|registerSW|workbox(?:-[\w.-]*)?)\.m?js$|^(?:sw|service-?worker)[-_.][\w.-]*\.m?js$/i;
+/** A service worker registration or use in script or markup (case-sensitive: React's own "serviceworker" literal is not one). */
+export const SERVICE_WORKER_REFERENCE = /serviceWorker/;
 
 /** The notice file that must sit in the bundle root (licence notices of every runtime package, see checkNotices). */
 export const NOTICES_FILE = 'THIRD_PARTY_NOTICES.txt';
@@ -30,11 +43,14 @@ export const MAX_BUNDLED_ICONS = 16;
 export const EXPECTED_ICONS = [
   'circle-question-mark',
   'cloud',
+  'cloud-drizzle',
   'cloud-fog',
   'cloud-lightning',
+  'cloud-moon',
   'cloud-rain',
   'cloud-snow',
   'cloud-sun',
+  'moon',
   'sun',
 ];
 
@@ -147,25 +163,32 @@ function hasExtension(name) {
 
 /**
  * Scans every file under `root`.
- * - Text files (TEXT_EXTENSIONS and extensionless files): content scan (credentials, URLs, and demo markers unless allowed).
- * - Every file, whatever its type: the demo file-name check unless allowed.
+ * - Text files (TEXT_EXTENSIONS and extensionless files): content scan (credentials, URLs and demo-layer markers; the
+ *   demo layer was removed in T-14, so any marker is a finding).
+ * - Every file, whatever its type: the demo file-name check.
  * - Binary or unknown-extension files: not read; listed in `skipped`.
  * - A file or folder that cannot be read or listed: listed in `unreadable` and counts as a failure.
+ * - Always: no service worker (a file named like one, or the word serviceWorker in a script or page); the summed
+ *   gzipped size of all JavaScript is within the budget (the app is one entry chunk, so "initial" and "all" agree and
+ *   a lazy chunk would still be counted: the stricter reading); dist/index.html carries the CSP (checkCsp).
  * - Always: the notices file must cover every runtime package at its installed version (checkNotices), and the
  *   icons found in the JavaScript must be exactly the pinned set (EXPECTED_ICONS), never zero when the Lucide code
  *   is present, and never more than MAX_BUNDLED_ICONS.
  * @param {string} root
- * @param {{ allowDemo?: boolean, readFile?: (path: string) => string, runtimePackages?: Array<{ name: string, version: string, license: string }>, expectedIcons?: string[] | null }} [options]
+ * @param {{ readFile?: (path: string) => string, runtimePackages?: Array<{ name: string, version: string, license: string }>, expectedIcons?: string[] | null, budgetGzipBytes?: number | null, requireCsp?: boolean }} [options]
  *   `readFile` is for tests (to simulate an unreadable file). `runtimePackages` defaults to the installed packages
- *   (readRuntimePackages); `expectedIcons` defaults to EXPECTED_ICONS and `null` skips the exact-set check.
+ *   (readRuntimePackages); `budgetGzipBytes` defaults to BUNDLE_BUDGET_GZIP_BYTES (`null` skips the size check) and
+ *   `requireCsp: false` skips the CSP check; `expectedIcons` defaults to EXPECTED_ICONS and `null` skips the exact-set check.
  * @returns {{ scanned: string[], skipped: string[], unreadable: Array<{ path: string, reason: string }>, findings: Array<{ file: string, name: string, context: string }>, icons: string[] }}
  */
 export function scanDirectory(root, options = {}) {
-  const allowDemo = options.allowDemo === true;
   const readFile = options.readFile ?? ((path) => readFileSync(path, 'utf8'));
   const expectedIcons = options.expectedIcons === undefined ? EXPECTED_ICONS : options.expectedIcons;
-  const result = { scanned: [], skipped: [], unreadable: [], findings: [], icons: [] };
+  const budget = options.budgetGzipBytes === undefined ? BUNDLE_BUDGET_GZIP_BYTES : options.budgetGzipBytes;
+  const requireCsp = options.requireCsp !== false;
+  const result = { scanned: [], skipped: [], unreadable: [], findings: [], icons: [], jsGzipBytes: 0 };
   const iconNames = new Set();
+  let indexHtml = null;
   let usesLucide = false;
 
   const visit = (dir) => {
@@ -189,8 +212,9 @@ export function scanDirectory(root, options = {}) {
         visit(full);
         continue;
       }
-      if (!allowDemo) {
-        for (const f of scanDemoFileName(entry)) result.findings.push({ file: full, name: f.name, context: f.context });
+      for (const f of scanDemoFileName(entry)) result.findings.push({ file: full, name: f.name, context: f.context });
+      if (SERVICE_WORKER_FILE.test(entry)) {
+        result.findings.push({ file: full, name: 'service worker file', context: `${entry} (no service worker is used, architecture 3.9)` });
       }
       const isText = TEXT_EXTENSIONS.test(entry) || (!hasExtension(entry) && !BINARY_EXTENSIONS.test(entry));
       if (!isText) {
@@ -205,16 +229,37 @@ export function scanDirectory(root, options = {}) {
         continue;
       }
       result.scanned.push(full);
+      if (/\.(?:m?js|cjs|html?)$/i.test(entry) && SERVICE_WORKER_REFERENCE.test(text)) {
+        const at = text.search(SERVICE_WORKER_REFERENCE);
+        result.findings.push({ file: full, name: 'service worker registration', context: text.slice(Math.max(0, at - 20), at + 40) });
+      }
+      if (full === join(root, 'index.html')) indexHtml = text;
       if (/\.(?:m?js|cjs)$/i.test(entry)) {
+        result.jsGzipBytes += gzipSync(Buffer.from(text, 'utf8'), { level: 9 }).length;
         if (/lucide/i.test(text)) usesLucide = true;
         for (const m of text.matchAll(LUCIDE_ICON_DEFINITION)) iconNames.add(m[1]);
       }
-      for (const f of [...scanText(text), ...(allowDemo ? [] : scanDemoMarkers(text))]) {
+      for (const f of [...scanText(text), ...scanDemoMarkers(text)]) {
         result.findings.push({ file: full, name: f.name, context: f.context });
       }
     }
   };
   visit(root);
+
+  if (budget !== null && result.jsGzipBytes > budget) {
+    result.findings.push({
+      file: root,
+      name: 'bundle over budget',
+      context: `JavaScript is ${result.jsGzipBytes} bytes gzipped, budget ${budget}`,
+    });
+  }
+  if (requireCsp) {
+    if (indexHtml === null) {
+      result.findings.push({ file: join(root, 'index.html'), name: 'CSP missing', context: 'index.html was not found or not read' });
+    } else {
+      for (const f of checkCsp(indexHtml)) result.findings.push({ file: join(root, 'index.html'), name: f.name, context: f.context });
+    }
+  }
 
   result.icons = [...iconNames].sort();
   if (result.icons.length > MAX_BUNDLED_ICONS) {

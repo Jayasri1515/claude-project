@@ -1,6 +1,18 @@
 // @vitest-environment jsdom
 import { render } from '@testing-library/react';
-import { Cloud, CloudFog, CloudLightning, CloudRain, CloudSnow, CloudSun, CircleQuestionMark, Sun } from 'lucide-react';
+import {
+  Cloud,
+  CloudDrizzle,
+  CloudFog,
+  CloudLightning,
+  CloudMoon,
+  CloudRain,
+  CloudSnow,
+  CloudSun,
+  CircleQuestionMark,
+  Moon,
+  Sun,
+} from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import { EXPECTED_ICONS } from '../../scripts/scanDistLib.mjs';
 import { CONDITION_PRESENTATION, describeCondition } from '../../src/core/conditions';
@@ -8,7 +20,7 @@ import { CONDITION_CODES } from '../../src/core/domain';
 import type { ConditionCode } from '../../src/core/domain';
 import { ConditionView } from '../../src/ui/ConditionView';
 import { WeatherIcon } from '../../src/ui/WeatherIcon';
-import { CONDITION_ICONS } from '../../src/ui/weatherIcons';
+import { CONDITION_ICONS, NIGHT_CONDITION_ICONS } from '../../src/ui/weatherIcons';
 
 /** TASK-035: Lucide icons for every ConditionCode, decorative next to the text, labelled when they stand alone. */
 const svgOf = (container: HTMLElement): SVGElement => {
@@ -29,11 +41,12 @@ describe('icon table completeness', () => {
   });
 
   // Pinned mapping: every ConditionCode -> its specific Lucide icon (component identity and rendered class name).
-  // Swapping two icons in src/ui/weatherIcons.ts must fail here. The names must also equal the 8-icon bundle pin.
+  // Swapping two icons in src/ui/weatherIcons.ts must fail here. The names (with the two night icons) must also equal the 11-icon bundle pin.
   const PINNED_ICONS = {
     CLEAR: { component: Sun, name: 'sun' },
     PARTLY_CLOUDY: { component: CloudSun, name: 'cloud-sun' },
     CLOUDY: { component: Cloud, name: 'cloud' },
+    DRIZZLE: { component: CloudDrizzle, name: 'cloud-drizzle' },
     RAIN: { component: CloudRain, name: 'cloud-rain' },
     SNOW: { component: CloudSnow, name: 'cloud-snow' },
     THUNDERSTORM: { component: CloudLightning, name: 'cloud-lightning' },
@@ -52,9 +65,32 @@ describe('icon table completeness', () => {
     expect(svg.classList.contains(`lucide-${name}`), `${code} should render lucide-${name}`).toBe(true);
   });
 
-  it('the pinned icon names are exactly the 8-icon bundle pin in scripts/scanDistLib.mjs', () => {
-    const names = Object.values(PINNED_ICONS).map((p) => p.name).sort();
+  it('the pinned icon names, plus the night icons, are exactly the 11-icon bundle pin in scripts/scanDistLib.mjs', () => {
+    const names = [...Object.values(PINNED_ICONS).map((p) => p.name), 'moon', 'cloud-moon'].sort();
     expect(names).toEqual([...EXPECTED_ICONS].sort());
+    expect(EXPECTED_ICONS).toHaveLength(11);
+  });
+
+  it('only clear and partly cloudy have a night icon: Moon and CloudMoon', () => {
+    expect(Object.keys(NIGHT_CONDITION_ICONS).sort()).toEqual(['CLEAR', 'PARTLY_CLOUDY']);
+    expect(NIGHT_CONDITION_ICONS.CLEAR).toBe(Moon);
+    expect(NIGHT_CONDITION_ICONS.PARTLY_CLOUDY).toBe(CloudMoon);
+  });
+
+  it.each([
+    ['CLEAR', 'lucide-moon', 'clear-night'],
+    ['PARTLY_CLOUDY', 'lucide-cloud-moon', 'partly-cloudy-night'],
+  ] as const)('%s with night renders %s, decorative', (code, cls, key) => {
+    const svg = svgOf(render(<WeatherIcon condition={code} night />).container);
+    expect(svg.classList.contains(cls)).toBe(true);
+    expect(svg.getAttribute('data-icon-key')).toBe(key);
+    expect(svg.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('night is ignored for a condition without a night icon', () => {
+    const svg = svgOf(render(<WeatherIcon condition="RAIN" night />).container);
+    expect(svg.classList.contains('lucide-cloud-rain')).toBe(true);
+    expect(svg.getAttribute('data-icon-key')).toBe('rain');
   });
 
   it.each(CONDITION_CODES.map((code) => [code] as const))('%s renders an SVG that is decorative by default', (code) => {
@@ -66,6 +102,21 @@ describe('icon table completeness', () => {
     expect(svg.getAttribute('focusable')).toBe('false');
     expect(svg.getAttribute('data-icon-key')).toBe(CONDITION_PRESENTATION[code].iconKey);
     expect(svg.querySelectorAll('path, circle, line, rect, polyline').length).toBeGreaterThan(0); // it has a drawing
+  });
+
+  it('ConditionView: clear by day is "Sunny" with the sun, at night "Clear" with the moon, no flag "Clear" with the sun', () => {
+    const day = render(<ConditionView condition="CLEAR" text={undefined} isDay />).container;
+    expect([day.textContent, svgOf(day).classList.contains('lucide-sun')]).toEqual(['Sunny', true]);
+    const night = render(<ConditionView condition="CLEAR" text={undefined} isDay={false} />).container;
+    expect([night.textContent, svgOf(night).classList.contains('lucide-moon')]).toEqual(['Clear', true]);
+    const unknownFlag = render(<ConditionView condition="CLEAR" text={undefined} />).container;
+    expect([unknownFlag.textContent, svgOf(unknownFlag).classList.contains('lucide-sun')]).toEqual(['Clear', true]);
+    for (const view of [day, night, unknownFlag]) expect(svgOf(view).getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('ConditionView: a forecast day is always Sunny with the sun', () => {
+    const view = render(<ConditionView condition="CLEAR" text={undefined} surface="forecast" isDay={false} />).container;
+    expect([view.textContent, svgOf(view).classList.contains('lucide-sun')]).toEqual(['Sunny', true]);
   });
 
   it('UNKNOWN uses the neutral question-mark icon', () => {

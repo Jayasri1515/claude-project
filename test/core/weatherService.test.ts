@@ -2,19 +2,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isAbortedResult } from '../../src/core/aborted';
 import { createConfig } from '../../src/core/config';
 import type { CurrentWeather, ForecastDay, WeatherSnapshot } from '../../src/core/domain';
-import { serviceUnavailable } from '../../src/core/errors';
+import { aborted, rateLimited, serviceUnavailable } from '../../src/core/errors';
 import { deriveLastUpdated } from '../../src/core/forecast';
 import { err, ok } from '../../src/core/result';
 import { WeatherService } from '../../src/core/weatherService';
 import type { WeatherRequestContext } from '../../src/core/weatherService';
 import { sampleCurrent, sampleForecast, sampleLocation } from '../fixtures/domain';
-import { FakeClock, FakeWeatherProvider } from '../fakes';
+import { FakeClock, LegacyFakeWeatherProvider } from '../fakes';
 
 const T0 = new Date('2026-01-01T10:00:00Z');
 const T1 = new Date('2026-01-01T10:05:00Z');
 
 function setup(overrides = {}) {
-  const provider = new FakeWeatherProvider();
+  const provider = new LegacyFakeWeatherProvider();
   const clock = new FakeClock(T0);
   const config = createConfig(overrides);
   const service = new WeatherService({ provider, clock, config });
@@ -71,12 +71,12 @@ describe('WeatherService load', () => {
     expect(snap.forecast.updatedAt).toEqual(T0);
   });
 
-  it('requests configured days and includeToday, and stores at most forecastDays', async () => {
+  it('requests the configured days with today as the first day (Config.forecastIncludesToday = true), and stores at most forecastDays', async () => {
     const { provider, service, ctx } = setup();
     const five: ForecastDay[] = Array.from({ length: 5 }, (_, i) => ({ date: `2026-01-0${i + 1}` }));
     provider.forecastScript.respondWith(ok(five));
     const snap = await done(service.load(sampleLocation, ctx()));
-    expect(provider.forecastScript.calls[0]?.args).toEqual([sampleLocation, 3, false]);
+    expect(provider.forecastScript.calls[0]?.args).toEqual([sampleLocation, 3, true]);
     expect(snap.forecast.data).toHaveLength(3);
   });
 
@@ -103,7 +103,7 @@ describe('WeatherService load', () => {
     provider.currentScript.respondWith(err(serviceUnavailable()));
     const snap = await done(service.load(sampleLocation, ctx()));
     expect(snap.current.status).toBe('error');
-    expect(snap.current.error?.code).toBe('SERVICE_UNAVAILABLE');
+    expect(snap.current.error?.kind).toBe('service');
     expect(snap.current.data).toBeUndefined();
     expect(snap.current.updatedAt).toBeUndefined();
     expect(snap.forecast.status).toBe('ready');
@@ -114,7 +114,7 @@ describe('WeatherService load', () => {
     const { provider, service, ctx } = setup();
     provider.currentScript.failWith(new Error('boom'));
     const snap = await done(service.load(sampleLocation, ctx()));
-    expect(snap.current.error?.code).toBe('SERVICE_UNAVAILABLE');
+    expect(snap.current.error?.kind).toBe('service');
   });
 
   it('a signal that is already aborted makes no provider call', async () => {
@@ -140,6 +140,42 @@ describe('WeatherService load', () => {
     provider.forecastScript.resolveNext(ok(sampleForecast));
     await p;
     expect(seen[seen.length - 1]).toEqual(['ready', 'ready']);
+  });
+});
+
+describe('WeatherService rate limit and provider aborts', () => {
+  it('a rate-limited section keeps its own kind and message key, and the other section is unaffected', async () => {
+    const { provider, service, ctx } = setup();
+    provider.currentScript.respondWith(err(rateLimited()));
+    provider.forecastScript.respondWith(ok(sampleForecast));
+    const snap = await done(service.load(sampleLocation, ctx()));
+    expect(snap.current.error).toEqual({ kind: 'rate_limited', messageKey: 'error.rateLimited' });
+    expect(snap.forecast.status).toBe('ready');
+  });
+
+  it('a provider answer of kind aborted is never stored in a section: the load is discarded (DR-09)', async () => {
+    const { provider, service, ctx } = setup();
+    provider.currentScript.respondWith(err(aborted()));
+    provider.forecastScript.respondWith(ok(sampleForecast));
+    const seen: WeatherSnapshot[] = [];
+    const r = await service.load(sampleLocation, { ...ctx(), onUpdate: (s) => seen.push(s) });
+    // The current section never settles into an error; no snapshot carries an aborted error.
+    expect(seen.every((s) => s.current.error === undefined && s.forecast.error === undefined)).toBe(true);
+    if (!isAbortedResult(r)) expect(r.value.current.error?.kind).not.toBe('aborted');
+  });
+
+  it('the caller aborting mid-load returns the discard outcome with no further updates', async () => {
+    const { provider, service, ctx } = setup();
+    const context = ctx();
+    provider.currentScript.hold();
+    provider.forecastScript.hold();
+    const updates: WeatherSnapshot[] = [];
+    const p = service.load(sampleLocation, { ...context, onUpdate: (s) => updates.push(s) });
+    await flush(); // both provider calls are now outstanding
+    const before = updates.length;
+    context.controller.abort();
+    expect(isAbortedResult(await p)).toBe(true);
+    expect(updates.length).toBe(before);
   });
 });
 
@@ -248,8 +284,8 @@ describe('WeatherService timeout and supersession', () => {
     await vi.advanceTimersByTimeAsync(1);
     await p;
     const snap = await done(Promise.resolve(result as NonNullable<typeof result>));
-    expect(snap.current.error?.code).toBe('TIMEOUT');
-    expect(snap.forecast.error?.code).toBe('TIMEOUT');
+    expect(snap.current.error?.kind).toBe('timeout');
+    expect(snap.forecast.error?.kind).toBe('timeout');
     expect(provider.currentScript.calls[0]?.aborted).toBe(true);
     expect(provider.forecastScript.calls[0]?.aborted).toBe(true);
     expect(provider.currentScript.callCount).toBe(1); // no automatic retry
@@ -263,7 +299,7 @@ describe('WeatherService timeout and supersession', () => {
     await vi.advanceTimersByTimeAsync(1000);
     const snap = await done(p);
     expect(snap.current.status).toBe('ready');
-    expect(snap.forecast.error?.code).toBe('TIMEOUT');
+    expect(snap.forecast.error?.kind).toBe('timeout');
   });
 
   it('a superseded request is aborted and its late result discarded', async () => {

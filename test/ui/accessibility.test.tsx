@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 import { serviceUnavailable } from '../../src/core/errors';
 import { ok } from '../../src/core/result';
 import { compose } from '../../src/composition';
-import { composeDemo } from '../../src/dev/demoComposition';
 import { App } from '../../src/ui/App';
 import { InMemoryKeyValueStore } from '../fakes';
 import { sampleSnapshot } from '../fixtures/domain';
@@ -63,11 +62,7 @@ describe('axe-core structural accessibility (TASK-039 groundwork)', () => {
     expect(await violations()).toEqual([]);
   });
 
-  it('demo mode and the not-configured page have no violations', async () => {
-    const demo = composeDemo({ keyValueStore: new InMemoryKeyValueStore() });
-    const view = render(<App store={demo.store} controller={demo.controller} config={demo.config} demo />);
-    expect(await violations()).toEqual([]);
-    view.unmount();
+  it('the not-configured page has no violations', async () => {
     const none = compose({ keyValueStore: new InMemoryKeyValueStore() });
     render(<App store={none.store} controller={none.controller} config={none.config} unconfigured />);
     expect(await violations()).toEqual([]);

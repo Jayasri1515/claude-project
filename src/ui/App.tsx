@@ -38,26 +38,15 @@ export interface AppProps {
   readonly store: ViewStateStore;
   readonly controller: UiController;
   readonly config: Config;
-  /** True when the data comes from the built-in demo providers (TASK-036). */
-  readonly demo?: boolean;
   /** True when no weather data source is configured: a notice replaces the sections. */
   readonly unconfigured?: boolean;
 }
 
-function DemoNotice() {
-  return (
-    <p className="demo-notice" role="note">
-      {message('ui.demoNotice')}
-    </p>
-  );
-}
-
-function Shell({ demo, config }: { demo: boolean; config: Config }) {
+function Shell({ config }: { config: Config }) {
   const layout = useLayout(config.breakpoints);
   return (
     <div className="app" data-layout={layout}>
       <header className="app-header">
-        {demo ? <DemoNotice /> : null}
         <h1 id={APP_TITLE_ID} tabIndex={-1}>
           {message('ui.app.title')}
         </h1>
@@ -138,27 +127,26 @@ interface ProviderProps {
   readonly store: ViewStateStore;
   readonly controller: UiController;
   readonly config: Config;
-  readonly demo: boolean;
   readonly children: ReactNode;
 }
 
-function UiProvider({ store, controller, config, demo, children }: ProviderProps) {
+function UiProvider({ store, controller, config, children }: ProviderProps) {
   const refresh = useGuardedAction(useCallback(() => controller.refresh(), [controller]));
   const value = useMemo<UiContextValue>(
-    () => ({ store, controller, config, demo, refresh }),
-    [store, controller, config, demo, refresh],
+    () => ({ store, controller, config, refresh }),
+    [store, controller, config, refresh],
   );
   return <UiContext.Provider value={value}>{children}</UiContext.Provider>;
 }
 
-export function App({ store, controller, config, demo = false, unconfigured = false }: AppProps) {
+export function App({ store, controller, config, unconfigured = false }: AppProps) {
   return (
     <ErrorBoundary restoreFocus={() => document.getElementById(APP_TITLE_ID)}>
       {unconfigured ? (
         <NotConfigured config={config} />
       ) : (
-        <UiProvider store={store} controller={controller} config={config} demo={demo}>
-          <Shell demo={demo} config={config} />
+        <UiProvider store={store} controller={controller} config={config}>
+          <Shell config={config} />
         </UiProvider>
       )}
     </ErrorBoundary>

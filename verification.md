@@ -1,838 +1,233 @@
-# Weather Application - Verification Record
-
-> **Supersession note added 2026-10-27 by the Implementer at the user's request (L3); no result, count or finding below was changed.** Statements below that say the weather icons are placeholders, that TASK-035 (icons) or TASK-025 (attribution) is "Blocked" or "Not built", that `IconSlot` is a placeholder, or that no real provider, attribution or CORS evidence exists were true when each run was recorded and are SUPERSEDED by the current state: TASK-035 is implemented (Lucide icons, ISC licence; the notice file `THIRD_PARTY_NOTICES.txt` ships in the build; how the icons look to a person is not human-verified); TASK-025 is implemented (credit in the footer AND inside the Current weather and Forecast panels, gated by `Config.attributionText`; Open-Meteo's own view of "next to" is unconfirmed); TASK-022, 023 and 037 are implemented (the provider is Open-Meteo; TASK-037 still needs a manual end-to-end check); TASK-024, 042 and 046 remain not approved or blocked. Affected passages (by their text): the AC-003-2 and AC-004-3 rows and the "placeholder icons" remarks (TASK-028, 029), the TASK-001/022 to 025/035/037/042/046 rows ("Not built / Blocked"), "`IconSlot` is a placeholder", and the Part B/C statements about placeholder `main.tsx`. Correction (2026-10-27): the changes made before Run 4 (disclosure text, `referrerPolicy`, stricter `scan:dist`, the `/claude-project/` base) ARE covered by Run 4 below (R4.1 commands 5-10, R4.4, and mutation checks M3, M4 and M13); the earlier sentence saying they were unverified predated Run 4. Only the following came after Run 4 and are NOT Verifier-run: the Implementer's icon-mapping pin in `test/ui/weatherIcon.test.tsx` (Implementer-reported) and later documentation/status edits. The test counts are distinct: 1199 is the Verifier's Run 4 count; 1209 is the Implementer-reported count after the icon pin. Also, TASK-037's manual end-to-end check was not done; the user accepted the automated real-API evidence instead (2026-10-27). The Implementer's own results are in `impl-plan.md` (TASK-022, 032, 035, 043). Further correction (2026-10-27): `impl-plan.md` Section 10 was corrected after these runs and now lists the approved tasks (TASK-024 and TASK-046 are not approved); statements below that Section 10 says no task is approved reflect the file at the time of each run.
-
-# RUN 4 (CURRENT, 2026-10-27): all implemented tasks, including the provider adapters, attribution, icons, C2, C3 and TASK-042
-
-> Historical record: statements about impl-plan.md Section 10 reflect the file at the time of this run; it was corrected afterwards (see top note).
-
-Author: Verifier. Run 4 started 2026-10-27 02:19 local (IST, UTC+05:30). Commands were run from `<project root>` (not a git repository; no deployment, publishing, commit or push). **Run 4 supersedes Run 3 (Part A), Run 2 (Part B) and Run 1 (Part C) as the current evidence.** The sentence below that calls Part A "the current run", and every Part A statement about placeholder icons, "no real provider", "Blocked/Not built" tasks, test counts (813) and the 3-file release build, was true of that earlier run only.
-
-**Scope:** TASK-003..021, 022, 023, 025, 026..034, 035, 036, 037, 038..041, 043..045; change requests C2 (INPUT_TOO_LONG) and C3 (wide-tier visual order = tab order); every review fix recorded in `impl-plan.md`; and TASK-042 (provider latency check), which the user approved. Not in scope: TASK-024 (not approved, no reverse geocoding), TASK-046.
-
-**What was modified:** only this file. No source, test, configuration or `impl-plan.md` content was changed. I made 19 distinct *temporary* mutations of `src/` for spot-checks (R4.6; the first one was run twice because my helper script could not read its result file the first time); each was restored from a backup copy immediately, and a SHA-256 comparison of 163 files (`src`, `scripts`, `test`, `e2e`, `public`, `docs`, `package*.json`, configs, `index.html`, `README.md`, `.gitignore`) taken before and after was identical. Throwaway latency scripts were written to the user temp directory (outside the repository) and deleted. Side effects: `npm run build*` and `npm run test:browser` rewrite `dist/`; **`dist/` now holds the release build** (hashes identical after `build:release`, the negative build, `test:browser`, and my later local preview; the demo build in between replaced it, and `test:browser` rebuilt it).
-
-## R4.1 Commands executed and results
-
-| # | Command | Exit | Result (observed) |
-|---|---------|------|-------------------|
-| 1 | `npm run typecheck` | 0 | No diagnostics |
-| 2 | `npm test` | 0 | 51 files, **1199 passed**, 0 failed, 0 skipped (12.8 s). Same counts in a second run with the JSON reporter (236 suites, 1199 passed, 0 pending, 0 todo). Output includes the jsdom message `Not implemented: HTMLCanvasElement's getContext()` (axe in jsdom; not a failure) |
-| 3 | `npm run lint` | 0 | No output beyond the banner |
-| 4 | `npm run build` | 0 | 1983 modules; `index.html` 0.58 kB, CSS 3.31 kB, `index-DRvIBnBb.js` 276.11 kB (85.13 kB gzip) |
-| 5 | `npm run build:release` | 0 | Build as above, then scan: "scanned 4 file(s), not scanned 0, unreadable 0, icons bundled 8 (circle-question-mark, cloud, cloud-fog, cloud-lightning, cloud-rain, cloud-snow, cloud-sun, sun) ... release build ...; no findings" |
-| 6 | `npm run scan:dist` (release build) | 0 | Same line, no findings |
-| 7 | **Negative:** `VITE_USE_DEMO=true npm run build:release` | **1 (expected)** | "Refusing to build: VITE_USE_DEMO=true is set ... use "npm run build:demo""; `dist/` hashes unchanged (4 files OK) |
-| 8 | `npm run build:demo` | 0 | 1986 modules; 5 files incl. `demoComposition-GlYW8hDQ.js` 2.72 kB; main JS 271.49 kB |
-| 9 | `npm run scan:dist:demo` (demo build) | 0 | "scanned 5 file(s) ... demo build: demo markers allowed); no findings" |
-| 10 | **Negative:** `npm run scan:dist` on that demo build | **1 (expected)** | 10 findings printed (demo chunk and module file names, `composeDemo` in 2 files, `demo:` prefix, `Testville`, `Sampleton`, `Partialia`, `Glitchton`, demo-module reference); "FINDINGS (see above)" |
-| 11 | `npm run test:browser` (after #10; rebuilt `dist/` as the release build) | 0 | **126 passed (3.0 m)**, 0 failed, 0 skipped, no retries. edge 49 (accessibility 13, browserApis 11, layout 25), chrome 49, release-edge 14, release-chrome 14. The release projects intercept both Open-Meteo hosts with recorded fixtures: **this suite makes no live API call** |
-| 12 | `npm audit` | 0 | "found 0 vulnerabilities" (single run; registry reachable) |
-| 13 | `npm run smoke:live` (once) | 0 | 3 real requests, 3 passed (3.2 s): geocoding "Berlin" -> Berlin, State of Berlin, Germany (Europe/Berlin), 1744 ms; current 7.9 C, 80 %, PARTLY_CLOUDY, observed 2026-10-26T20:45Z, 968 ms; forecast dates 2026-10-27, 28, 29, 254 ms |
-| 14 | `sha256sum -c` on the 4 release `dist/` files | 0 | OK after #7, after #11 and after the latency runs |
-| 15 | TASK-042 probes (R4.3) and 19 mutation runs (R4.6) | n/a | Described below. Mutation runs used `npx vitest run --reporter=json --outputFile=<temp>` (full suite each time) |
-
-Inventory (per-file counts from the JSON reporter, all 0 failed): adapters: geolocation 19, localStorageStore 6, **openMeteo conditionCodes 50, geocoding 59, weather 99**; core 15 files (errors 19, format 24, others as Run 3) ; scenarios acceptance 37; security: baseUrl 33, demoMarkers 62, notices 12, privacy 7, releaseGuard 16, scanDist 72, secretScan 135, sourceScan 34; ui 20 files incl. **footer 38, liveComposition 10, weatherIcon 25, styles 17, status 35, location 14**; fakes 14; smoke 1. Net +386 since Run 3 (813 -> 1199).
-
-## R4.2 Per-command and per-claim summary
-
-Every command expected to pass passed and both commands expected to fail failed. This is evidence about code, logic, UI behaviour, demo/release separation and bundle scans in jsdom and in automated Edge 156 / Chrome 156, against **recorded** provider responses. Separately, #13 and the TASK-042 runs (R4.3) show the release build works against the **real** Open-Meteo APIs from this machine.
-
-## R4.3 TASK-042: latency measurement and NFR-004
-
-**Target (accepted by the user, `docs/provider-checklist.md` B3; `architecture.md` section 7):** loading state within 200 ms of search submit or refresh; current weather and forecast both displayed within 3 s for at least 90 % of requests under defined conditions; 10 s timeout (`weatherTimeoutMs`).
-
-**Conditions (one machine, one network, one short window; not a guarantee):** Windows 11 laptop (AMD Ryzen 5 PRO 230, 12 threads, 33 GB), Wi-Fi 7 link (866.7 Mbps link speed; VPN or proxy status not checked); time zone Asia/Calcutta (India). Public IP and region were not looked up (no extra requests); the region is inferred only from the OS time zone. Node v24.21.0; Edge 156.0.4314.42 and Chrome 156.0.8078.48 driven by Playwright; release build served by `vite preview` on `http://localhost:4175/claude-project/` (origin `http://localhost`, not https). Times: smoke 02:24, Node probe about 02:25:35 to 02:26:51, browser runs 02:27:55 to 02:28:52, one value check 02:29 (all IST, 2026-10-27, night in India, late afternoon/evening in Europe). Cold = first request on a new connection (new browser process or first request in the Node process); warm = connection reused.
-
-**Request volume:** 96 real Open-Meteo requests in total (smoke 3, API probe 60, browser timing 30, value check 3), with 3-4 s pauses; far under the stated limits. No HTTP error, timeout or non-200 occurred.
-
-**A. API calls from Node (sequential, 20 cities, then a 3 s pause; not the app):** per city: 1 geocoding search (`count=5`), then the current and daily forecast calls in parallel, as the app does; response body read to the end. Milliseconds, nearest-rank percentiles, n = 20:
-
-| Call | min | p50 | p90 | max |
-|------|-----|-----|-----|-----|
-| geocoding search | 272 | 345 | 1294 | 1309 |
-| current weather | 199 | 273 | 1047 | 1108 |
-| daily forecast | 199 | 273 | 1046 | 1104 |
-| both weather calls in parallel | 199 | 273 | 1048 | 1108 |
-| search + both (sequential, no human pause) | 475 | 587 | 2347 | 2415 |
-
-The first four cities (Berlin, Paris, Mumbai, Tokyo, the first 15 s) were all slow (geocoding 1176-1309 ms, weather 969-1108 ms); the other 16 were fast (geocoding 272-404, weather 199-311). I do not know why (new connections, DNS, network warm-up, or server-side variation); the p90 is driven by those four.
-
-**B. End to end in the built release app, real APIs, Edge (3 runs) and Chrome (3 runs), measured inside the page from the click event time:** each run was a new browser context; run 1 of each browser is a new browser process. Per run: search (1 geocoding call), choose the first match (2 weather calls), refresh (2 weather calls). 6 runs, 18 activations:
-
-| Measure | Observations (ms) | p50 | p90 | max |
-|---------|-------------------|-----|-----|-----|
-| loading text visible after search click / choose click / refresh click | 3 to 10 (all 18) | 5 | 7 | 10 |
-| search click to chooser shown | 1117, 1146, 1259, 1424, 1437, 1462 | 1259 | 1462 | 1462 |
-| **choose click to BOTH sections rendered** | 864, 929, 962, 983, 1036, 1062 | 962 | 1062 | 1062 |
-| search click to both sections (machine time, excluding the user's choosing pause) | 2046, 2108, 2295, 2301, 2407, 2524 | 2295 | 2524 | 2524 |
-| refresh click to both sections refreshed | 213, 216, 232, 264, 273, 278 | 232 | 278 | 278 |
-
-Cold vs warm: the first request to a host on a new connection costs roughly 0.7 to 1.0 s more (choose after a fresh context: 0.86-1.06 s; refresh on the now-warm connection: 0.21-0.28 s). Every run made exactly 5 Open-Meteo requests and produced no console output or page error. Responses carried `access-control-allow-origin: *` (checked in the value run, from origin `http://localhost`).
-
-**C. Value check (Chrome, 1280 px, "Paris", 3 requests):** rendered 14°C, 93 %, Cloudy, forecast Tue Oct 27 Rain 19/11, Wed Oct 28 Cloudy 16/8, Thu Oct 29 Fog 16/6. API: current 13.8 C, 93 %, WMO 3; daily (first day, today in Paris, dropped) codes 61, 3, 45, max 18.7/15.6/15.6, min 10.7/7.7/5.9 for the shown days. All match the app's rounding and condition table. Dates are Paris calendar dates (the API's first day 2026-10-26 was dropped).
-
-**Verdict vs NFR-004 (this machine/network/time only):**
-- Loading state within 200 ms: **met in all 18 observed activations (max 10 ms)**.
-- Both sections within 3 s: **met in 26 of 26 observations** (6 browser runs, from search click at most 2.52 s and from choice click at most 1.06 s; 20 Node sequences at most 2.42 s); refreshes at most 0.28 s. No request approached the 10 s timeout.
-- The sample is too small to *demonstrate* a 90th percentile (n = 6 and n = 20, one region, one network, one window of about 5 minutes, not a peak period); the p90 figures above are descriptive. No other region, mobile network, poor Wi-Fi, other times of day, Firefox/Safari, a deployed https origin or rate-limit behaviour was measured. The margin to 3 s is about 0.5 s on the slowest end-to-end sequence if the user's choice is counted as part of it, so a network with a higher first-connection cost could miss the target. Result: **consistent with the accepted target here; not proof that 90 % of all users meet it.**
-
-**Can TASK-042 be Complete?** The Verifier part (method and results recorded, in this section) is done. The plan's completion criterion also says the user decides the final NFR-004 value; the user accepted 200 ms / 3 s / 90 % before measurement. My recommendation: mark TASK-042 Complete (measurement recorded) once the user has seen these numbers and kept or changed the target; NFR-004 itself should read "accepted; consistent with one measurement on one machine/network", not "verified in general". I did not edit `impl-plan.md`.
-
-## R4.4 AC and requirement mapping (Run 4 changes; unchanged rows keep their Run 3 status in A.4)
-
-Basis: **Read** = I read the test bodies this run (`weather.test.ts` lines 1-330, `geocoding.test.ts` lines 1-200, `weatherIcon.test.tsx`, `liveComposition.test.tsx`, `release.spec.ts` lines 60-175, 340-395 and 476-559; Run 3 readings carry over); **Title** = titles and mutation-failure messages only (`footer.test`, `styles.test`, `errors.test`, `search.test*`, `location.test`, `e2e/layout.spec`, `e2e/accessibility.spec`, `e2e/browserApis.spec`, other parts of `release.spec`); **Mut** = broke `src/` and a test failed (R4.6); **Live** = ran against the real API (R4.3).
-
-| Item | Evidence | Status |
-|------|----------|--------|
-| AC-001-1 (search, show weather) | acceptance, `liveComposition` "search -> choose -> weather", `release.spec` (recorded), **Live**: about 28 real searches (20 Node, 6 browser, 1 value check, 1 smoke) | **Verified (fakes, recorded responses, and real API from this machine)** |
-| AC-001-3 (no match), AC-001-5 (service error) | `liveComposition` ("no results key" -> "City not found"; 400 -> generic message, no provider text), `release.spec` 503 and network failure, geocoding/weather adapter failure tests (Read) | Verified (recorded). A real provider outage was not observed |
-| C2 over-long input (INPUT_TOO_LONG; user-approved change request with an architecture amendment note) | `errors.test`, `search.test`, `search.test.tsx`, `liveComposition` (own message, zero requests), `release.spec` (Edge, Chrome); Mut M5, M15 (3 and 4 tests failed) | **Verified** (message text is a user-accepted wording; code-point length counting is the default) |
-| AC-002 (device location) | unchanged from Run 3; plus `liveComposition` and `release.spec` granted-permission test (only forecast host called, 2-decimal rounded coordinates, nothing stored, no "Add to favorites") | Verified (fakes; Edge+Chrome with test-granted permission). **Real permission prompt not verified. Reverse geocoding intentionally absent (A4 = No): a device location shows "Current location" and cannot be favorited** |
-| AC-003-1/-3/-4, AC-004-1/-2/-4 (values, units, dates) | adapter tests: unit rejection (Mut M12), missing fields stay undefined, 0 is kept, offsets +5:30/+5:45/-3:30/+14/-12, `observedAt` (Mut M10), forecast `dropFirst` (Mut M9); **Live** value check | **Verified** for what the provider returns today (dates are the location's calendar dates; FR-025 default behaviour was seen in the real API for Paris and Berlin only) |
-| AC-003-2 / AC-004-3 / AC-007-2 (icons; FR-015, FR-022, FR-041) | `weatherIcon.test` (Read: table complete, distinct, decorative `aria-hidden`, text always beside, labelled-when-alone), `currentWeather`, `acceptance` (keys), `release.spec` icons test (Edge, Chrome), `scanDist` (exact 8-icon set, notice file); Mut M7c (code to condition mapping, caught) | **Partial.** Presence, decorative semantics and "never icon-only" verified. **Weak:** only PARTLY_CLOUDY -> cloud-sun and UNKNOWN -> question-mark pin the drawing; swapping RAIN/SNOW or THUNDERSTORM/FOG icons passed all 1199 tests (Mut M7, M7b survived). How the icons look to a person: not human-verified (I viewed one 1280 px screenshot; that is not a design review) |
-| Attribution (TASK-025; Open-Meteo licence "link next to data", GeoNames, CC BY 4.0) | `footer.test` 38 (titles and mutation failures; body not read) incl. in-panel credit in live mode only, outside live regions, absent before data/while loading/with no `attributionText`/in demo; `release.spec` footer and layout tests (Edge, Chrome); Mut M1 (7 failed), M2 (1), M11 (1); screenshot showed the credit in both panels and the footer | **Verified for presence, wording, links, gating.** Open-Meteo's own acceptance of the placement: **not verifiable here** |
-| NFR-005 (privacy) and the disclosure text (M1) | `location.test` disclosure test (Mut M13 caught), `release.spec` (no Referer; control request does carry it), adapter tests, 2-decimal rounding (Mut M3, M3b: 11 failed each), `credentials: 'omit'` (Mut M16), `referrerPolicy` (Mut M4: 3 failed) | Verified for what the app sends and stores. The disclosure matches the observed requests (search text, rounded coordinates, IP are visible to the provider). Open-Meteo's own privacy terms were not read |
-| NFR-006 (HTTPS, encoding, no key, no provider text) | adapter and `liveComposition` request tests, hostile-query tests (Mut M8: 2 failed), `release.spec` (every request HTTPS GET to the two hosts, no key), `sourceScan` host pin, `scan:dist` | **Verified** (the Run 3 "not verifiable" gap is closed) |
-| NFR-004 | R4.3 | **Consistent with the accepted target on one machine/network; not verified in general** |
-| C3 / FR-043 / AC-007-1, -4 (wide-tier order = tab order) | `styles.test` (no `grid-column`, `grid-row`, `order`, dense flow, tier-scoped panel rules; Mut M6: 3 failed), `e2e/layout.spec` (25 per browser; the plan says it checks the arrangement and DOM order == visual order; body not read this run), screenshot at 1280 px matches the specified extra-wide arrangement | Verified (geometry in Edge+Chrome, CSS text). **Human visual judgement ("clear, organized") not done** |
-| Base path `/claude-project/`, release guard, scans (TASK-043) | `baseUrl.test` 33, `releaseGuard`, `scanDist`, `notices`, `release.spec` base-path test; commands 5-10 | Verified locally. **Nothing is deployed; the Pages URL is unverified** |
-| AC-005, AC-006, AC-007-5/-6, FR-044, NFR-001 | unchanged from Run 3 plus all re-run (1199 pass); loading indicator now also measured on the real app (R4.3) | As A.4 |
-| AC-P-06 and every TBD (OQ-001..014) | none beyond defaults | Defaults only; AC-P-06 not verifiable |
-
-## R4.5 What is NOT verified
-
-- Manual-only: screen readers (NVDA, VoiceOver, TalkBack); Firefox and Safari; any real phone or tablet (touch, on-screen keyboard); the real browser location prompt (allow, deny, ignore); a human visual review at 320/768/1280/1920 px; browser zoom 200/400 % and text-spacing overrides; forced-colours/high-contrast mode; whether the icons look right; closing and reopening a whole browser with favorites; private-mode storage.
-- CORS and behaviour from the real deployed https origin (nothing is deployed). I saw `access-control-allow-origin: *` only from `http://localhost`.
-- Open-Meteo's acceptance of the attribution placement, its terms/rate limits for this use, and its privacy policy.
-- Coverage tooling: no coverage report was produced (none is configured); "all tests pass" is not line or branch coverage.
-- Requirements whose answers are TBD (OQ-001..014) are checked only against the default values.
-- Not run: `npm run dev`, `npm run dev:demo`, `npm install` from a clean checkout, `npm run test:browser:release` separately (its two projects are inside #11), a fresh-reader validation of the README (script names in README/docs were compared with `package.json`: all exist). Real-API checks were manual one-offs; the suite never calls the live API.
-
-## R4.6 Mutation spot-checks (temporary changes to `src/`, restored each time)
-
-Restoration: backup copy `cp` after every run, `cmp` per file, and a before/after SHA-256 comparison of 163 files: **identical**. "Killed" = at least one test failed.
-
-| # | Mutation | Result |
-|---|----------|--------|
-| M1 | Remove the in-panel credit from the Current weather card | Killed (7 failed, all `footer.test`) |
-| M2 | Show the credit in demo mode (remove `demo` check) | Killed (1) |
-| M3, M3b | Drop latitude / longitude rounding | Killed (11 each, `weather.test`) |
-| M4 | Drop `referrerPolicy: 'no-referrer'` | Killed (3: liveComposition, geocoding, weather) |
-| M5 | Over-long input returns `emptyInput()` instead of `inputTooLong()` | Killed (3: core search, UI search, liveComposition) |
-| M6 | C3 revert: place Favorites with `grid-column`/`grid-row` in the wide tier | Killed (3, `styles.test`) |
-| M7 | Swap the RAIN and SNOW icons | **SURVIVED (0 failed of 1199)** |
-| M7b | Swap the THUNDERSTORM and FOG icons | **SURVIVED (0 failed)** |
-| M7c | Map WMO code 61 to SNOW | Killed (4) |
-| M8 | Search text appended to the URL without encoding | Killed (2) |
-| M9 | Forecast drops day index 1 instead of 0 | Killed (7) |
-| M10 | Wrong sign for the UTC offset in `observedAt` | Killed (10) |
-| M11 | Credit shown even when `attributionText` is empty | Killed (1) |
-| M12 | Accept a non-Celsius current temperature | Killed (1) |
-| M13 | Disclosure text drops "your IP address" | Killed (1, `location.test`) |
-| M14 | Geocoding adapter not given the Config timeout | Killed (1) |
-| M15 | `INPUT_TOO_LONG` mapped to another message key | Killed (4) |
-| M16 | `credentials: 'omit'` -> `'include'` | Killed (3) |
-
-19 distinct mutations: 17 killed, 2 survived (M7, M7b). Mutations are single-line edits chosen by me, not a systematic mutation-testing run; they say nothing about the many other lines I did not break.
-
-## R4.7 Failures, weak tests and observations
-
-- **No test, command or browser check failed.**
-- **Weak test (survived mutation):** no test pins which Lucide icon belongs to RAIN, SNOW, THUNDERSTORM, FOG, CLEAR or CLOUDY. `weatherIcon.test` checks completeness, distinctness and the `data-icon-key` that comes from the conditions table, not from the icon table; `release.spec` checks the icon set is exactly the eight icons but not their mapping. Suggested follow-up for the Implementer: assert the Lucide class (as `currentWeather.test` does for cloud-sun) for each code. Not fixed by me.
-- Self-reference: forecast date and temperature text in several tests is produced by the same formatter the app uses; my live value check (R4.3 C) compared rendered text with the raw API numbers once, by hand.
-- The four slow first iterations in the Node probe and the roughly 0.7-1.0 s first-connection cost in the browser are unexplained beyond "new connection"; they are the main risk to the 3 s target.
-- Remaining documentation conflicts (not edited): `impl-plan.md` Section 1 intro (line 5: "No application code exists ... Nothing is Complete") and Section 10 ("Tasks approved for implementation: none") still contradict line 3 and Section 4. `impl-plan.md` line 52 still says "No task is Unverified".
-
-## R4.8 Per-task verdicts (Verifier; plan statuses not edited)
-
-Vocabulary: **Verified** = automated evidence passes in the stated scope; **Partially verified** = automated evidence passes but a listed part is unverified or weakly tested; **Not verifiable here** = needs a person, a device, a deployment or a decision.
-
-| Task | Verdict | Note |
-|------|---------|------|
-| 003 scaffold | Verified | typecheck, lint, build, test, scripts run |
-| 004 result/errors (incl. C2 code) | Verified | M15 |
-| 005 domain, 006 ports, 007 config | Verified | thin domain/ports tests; config only against defaults |
-| 008 identity, 009 format, 011 forecast, 012 fakes | Verified | single locale for format |
-| 010 conditions table | Partially verified | WMO mapping killed (M7c); icon-key table only |
-| 013 search (incl. C2), 014 weather service, 015 location flow, 016 favorites, 017 settings, 018 store, 019 controller | Verified (fakes) | all re-run; bodies not re-read this run beyond search/errors |
-| 020 localStorage, 021 geolocation | Verified (jsdom/stubs, Edge+Chrome) | real prompt, other browsers not verified |
-| 022 geocoding adapter | Verified (recorded + real API from this machine) | deployed-origin CORS, rate limits not verified |
-| 023 weather adapter | Verified (recorded + real API from this machine) | same |
-| 024 reverse geocoding | Not built, not approved | absence confirmed: no reverse call anywhere |
-| 025 attribution | Partially verified | Open-Meteo's view of "next to" not verifiable here |
-| 026 shell (incl. C3), 027 search UI, 028 current card, 029 forecast, 030 refresh, 031 favorites, 032 location control and disclosure, 033 unit toggle, 034 status/error boundary | Verified (jsdom, Edge+Chrome) | human visual/usability, screen reader, other browsers/devices not verified |
-| 035 icons | Partially verified | decorative/text/bundle verified; mapping weakly tested (2 mutants survived); look not human-checked |
-| 036 composition | Verified | live, demo and unconfigured modes tested |
-| 037 real providers | Partially verified | see below |
-| 038 scenario tests | Verified | 37/37, mapping updated; icon and TBD items as above |
-| 039 accessibility, 040 responsive/browser, 041 security/privacy | Partially verified | automation passes (Edge, Chrome); manual lists in the plan remain. 041's HTTPS/encoding gap is now closed |
-| 042 latency | Measured (R4.3) | Verifier part done; user decision on final NFR-004 pending |
-| 043 HTTPS build/scans | Verified locally | hosting/deploy not done |
-| 044 code review | Not verifiable here | automated conformance tests pass; independent review is not my role |
-| 045 documentation | Partially verified | script names and defaults checked; not validated by a fresh reader |
-| C2 | Verified | |
-| C3 | Verified (geometry, CSS, DOM order) | human visual judgement pending |
-
-**TASK-037 "pending manual end-to-end verification":** what I did: automated Playwright runs of the built release app against the real Open-Meteo APIs in real Edge and Chrome (6 full search -> choose -> weather -> refresh flows, then one Chrome run whose rendered values I compared with the raw API responses), plus `smoke:live` once. All worked, with no console output or page errors. What I did not do: a human using the app by eye and hand, or a run from a deployed https origin. I do **not** treat the criterion ("a manual check by the user or Verifier") as fully satisfied. Remaining: the user (or the orchestrator, with the user's agreement) either runs `npm run dev` / `npm run build:release && npx vite preview` and tries a few cities, or explicitly accepts these automated real-API runs as the Verifier's check.
-
-## R4.9 Required follow-up
-
-1. Implementer: add per-condition icon assertions (M7 and M7b survived). Re-verification of that change is needed.
-2. User: confirm or change the NFR-004 target after reading R4.3; do the manual checks in R4.5 and the TASK-037 hands-on check.
-3. Any change to `src/`, tests or configuration since 02:19 IST on 2026-10-27 needs re-verification; Run 4 evidence applies only to the state hashed above.
-4. Before any deployment (not authorized): check CORS and behaviour from the real https origin.
-
----
-
-This file has three parts. **Part A is the run before Run 4 (Run 3, 2026-10-27, now SUPERSEDED by Run 4 above)** and covers every implemented, approved task: TASK-003..021, 026..034, 036, 038..041, 043..045. **Part B (Run 2, 2026-10-26) and Part C (Run 1, 2026-10-26) are older runs, kept unchanged as recorded and SUPERSEDED by Part A.** Anything in Part B or C that differs from Part A (test counts 495 and 304, "demo providers ship in the production bundle", "no UI exists", "no coverage of TASK-038..045", "npm audit/browser checks not run") was true of that earlier run only; do not use it as current evidence.
-
-# PART A - RUN 3 (SUPERSEDED by Run 4 above; recorded 2026-10-27 00:05, text unchanged below this line): TASK-003..021, 026..034, 036, 038..041, 043..045
-
-> Historical record: statements about impl-plan.md Section 10 reflect the file at the time of this run; it was corrected afterwards (see top note).
-
-Author: Verifier. Run started 2026-10-27 00:05 local (IST). All commands were run from `<project root>` (not a git repository).
-
-**What was modified:** only this file. No source, test, configuration or `impl-plan.md` content was changed. The Verifier did make 18 *temporary* mutations of `src/` and `scripts/` for spot-checks (A.9); every file was restored, and restoration is proved by a before/after SHA-256 comparison of 128 files (A.9). Helper files (backup copy, JSON reports, logs) were written to the user temp directory, outside the repository. Side effect: `npm run build`, `build:release`, `build:demo` and `test:browser` regenerate `dist/`; **`dist/` now holds the release build** (left by `test:browser`; its hashes match the earlier `build:release`, A.2).
-
-## A.1 Verification Summary
-
-| # | Command | Exit | Result |
-|---|---------|------|--------|
-| 1 | `npm run typecheck` | 0 | Passed, no diagnostics |
-| 2 | `npm test` | 0 | Passed: 43 files, 813 tests passed, 0 failed, 0 skipped (10.0 s) |
-| 2b | `npx vitest run --reporter=json --outputFile=<temp>` (second full run, per-file counts) | 0 | 813 total / 813 passed / 0 failed / 0 pending / 0 todo, 43 files |
-| 3 | `npm run lint` | 0 | Passed, no output beyond the banner |
-| 4 | `npm run build` | 0 | Passed: 56 modules; `index-DV-ZUVLj.js` 259.82 kB (79.86 kB gzip), CSS 3.30 kB, `index.html` 0.55 kB |
-| 5 | `npm run build:release` | 0 | Passed: build as above, then `scan:dist`: "scanned 3 file(s), not scanned 0, unreadable 0 ... release build: demo markers are findings); no findings" |
-| 6 | `npm run scan:dist` (on the release build) | 0 | "scanned 3 file(s) ... no findings" |
-| 7 | **Negative:** `VITE_USE_DEMO=true npm run build:release` | **1 (expected failure observed)** | `tsc` passed, then Vite: "Refusing to build: VITE_USE_DEMO=true is set ... use npm run build:demo". `dist/` hashes unchanged (sha256 check OK for all 3 files) |
-| 8 | `npm run build:demo` | 0 | Passed: 60 modules; 4 files incl. `demoComposition-Cr6nNFPP.js` 2.72 kB; main JS `index-DVlLHq9N.js` 261.52 kB |
-| 9 | `npm run scan:dist:demo` (on the demo build) | 0 | "scanned 4 file(s) ... demo build: demo markers allowed); no findings" |
-| 10 | **Negative:** `npm run scan:dist` on that demo build | **1 (expected failure observed)** | 10 findings printed: demo chunk file name, demo module file name, `composeDemo`, storage prefix `demo:`, `Testville`, `Sampleton`, `Partialia`, `Glitchton`, reference to demo module; "FINDINGS (see above)" |
-| 11 | `npm run test:browser` (run after #10, so it rebuilt `dist/` as the release build) | 0 | **78 passed (1.7 m), 0 failed, 0 skipped.** Edge 36, Chrome 36, release-edge 3, release-chrome 3 |
-| 12 | `npm audit` | 0 | "found 0 vulnerabilities" (registry reachable; single run, state at that time) |
-
-**Plain statement of what this shows.** Every command that is supposed to pass passed, and both commands that are supposed to fail failed. This is evidence that the logic, the UI, the demo/release separation and the bundle scans behave as the tests specify, in jsdom against fakes and in automated Microsoft Edge and Google Chrome against the demo build and the release build. It is **not** evidence that the application works against a real weather provider (none is built), in Firefox or Safari, on a real device, with a screen reader, or that it "looks clear and organized". **The release build as it stands is the "Weather is not set up yet" page; it contains no working weather feature** (by design until TASK-037; confirmed by `e2e/release.spec.ts`). All weather behaviour was verified only in demo mode or against fakes.
-
-## A.2 Scope and Environment
-
-- Windows 11 Enterprise, Git Bash, Node v24.21.0, npm 11.19.0, Vitest v5.0.5, Vite v8.3.5. Playwright drives the system Microsoft Edge and Google Chrome (`channel` option; no browser download). Versions of the two browsers were not recorded. Nothing was installed or reconfigured.
-- Scope: the approved tasks named above, including all post-review fixes recorded in `impl-plan.md` (batch 1 on core tasks, batch 2 on UI tasks, the TASK-031/032 WCAG 2.5.3 fix, the TASK-036 "exclude demo from release builds" follow-up, the TASK-043 release guard/scan hardening, the TASK-038/039/040/041 Code Reviewer follow-ups).
-- Test environments: Vitest default `node`; the `.tsx` UI/scenario/privacy tests opt in to jsdom (`// @vitest-environment jsdom`); jsdom has no layout engine. `test/security/releaseGuard.test.ts` runs real `vite build` processes into temp folders, and `test/security/scanDist.test.ts` also scans the real `dist/` when present (it ran, not skipped, in both full runs; `dist/` was a release build at that time).
-- Approval basis: `impl-plan.md` line 3 and Section 4 record user approval for exactly the task list above. I cannot independently confirm the original chat messages. **Conflict not reconciled (and not edited):** `impl-plan.md` Section 1 intro line 5 still says "No application code exists ... Nothing is Complete", and Section 10 (line 580) still says "Tasks approved for implementation: none", contradicting line 3 and Section 4. `requirements.md` is Approved with OQ-001..OQ-014 still TBD.
-- `dist/` integrity: sha256 of the three release files recorded after `build:release` and re-checked after the negative build and again after `test:browser`: identical (`index-DV-ZUVLj.js`, `index-SepI_PU-.css`, `index.html`).
-- Release vs demo bundle facts (this run): release JS contains 0 occurrences of `Testville`, `Sampleton`, `Partialia`, `Glitchton`, `composeDemo`, `PrefixedKeyValueStore`; the demo build contains them. The substring `demo:` still appears in the release JS only as minified object property names (the `demo` prop of `App`) and the two generic message-table sentences (`ui.demoNotice`, `ui.location.demoNote`) remain in the release JS, as `impl-plan.md` TASK-036 states. This **resolves the Run 2 observation** (Part B, A3 item 7) that demo providers shipped in the production bundle.
-- Test inventory, Run 3 (43 files / 813 tests; per-file counts from the JSON reporter, all 0 failed): core and adapter files are unchanged from Run 2 (smoke 1, errors 18, domain 3, ports 9, config 36, identity 13, format 20, conditions 7, forecast 12, fakes 14, search 18, weatherService 19, locationFlow 22, favoritesService 23, settings 10, store 13, appController 41, localStorageStore 6, geolocation 19 = 304). UI: app 12, search 14, currentWeather 13, forecast 10, refresh 9, favorites 9, location 12, unitToggle 6, status 32, composition 5, demoMode 12, focus 17, liveRegions 9, robustness 8, accessibility 5, styles 10, noLiterals 6 = 189. **New since Run 2:** `test/scenarios/acceptance.test.tsx` 37 (TASK-038); `test/security/` demoMarkers 62, privacy 7, releaseGuard 16, scanDist 35, secretScan 135, sourceScan 28 = 283. Net +318 (495 to 813: +37 +283, demoMode -5, favorites +1, location +3, status -1). Browser: `e2e/` accessibility 24, browserApis 22, layout 26, release 6 test executions (78 = each of 3 specs x 2 browsers + release x 2 browsers).
-
-## A.3 Commands Executed (exact commands, this run)
-
-1. `npm run typecheck` : exit 0 (`tsc --noEmit`; `tsconfig.json` includes `src`, `test`, `e2e`, one `scripts` declaration file, `vite.config.ts`, `playwright.config.ts`).
-2. `npm test` : exit 0; `Test Files 43 passed (43)`, `Tests 813 passed (813)`, 10.02 s. Output also contained a jsdom message `Not implemented: HTMLCanvasElement's getContext() method` (apparently from axe-core in jsdom; not a failure) and a Vitest advisory about worker isolation.
-3. `npx vitest run --reporter=json --outputFile=<temp>/vr3.json`, then a Node script to read it : exit 0; 813/813. (My first two helper-script attempts had shell-quoting errors and were rewritten; not project failures.)
-4. `npm run lint` : exit 0. `eslint.config.js` ignores `dist`, `node_modules`, `coverage`, `test-results`, `playwright-report`; `src`, `test`, `e2e`, `scripts` are linted.
-5. `npm run build` : exit 0.
-6. `npm run build:release` : exit 0 (runs `npm run build` then `npm run scan:dist`).
-7. `npm run scan:dist` : exit 0.
-8. `VITE_USE_DEMO=true npm run build:release` : exit 1, as required.
-9. `npm run build:demo` : exit 0.
-10. `npm run scan:dist:demo` : exit 0.
-11. `npm run scan:dist` (on the demo build) : exit 1, as required.
-12. `npm run test:browser` : exit 0, 78 passed. Playwright starts the demo dev server (port 4173) and runs `npm run build:release && npx vite preview` (port 4174) itself; the release projects passing implies that `build:release` (including `scan:dist`) succeeded, but its own output was not printed by the runner, so that is an inference.
-13. `npm audit` : exit 0, 0 vulnerabilities.
-14. Mutation spot-checks (A.9): `npx vitest run <files> --reporter=json --outputFile=<temp>`, plus one `npx vite build --outDir <temp>` and `node scripts/scanDist.mjs <temp>`.
-15. Read-only checks: `grep`/`sha256sum`/`diff` as shown in A.9; README script names compared with `package.json` (all 12 scripts named in README/`docs/deployment.md` exist; `npm install`, `npm run dev` and `npm run dev:demo` were **Not run**); 6 README config defaults compared with `src/core/config.ts` (matched).
-
-**Not run:** `npm run dev`, `npm run dev:demo` (a long-running server; Playwright starts the demo server itself), `npm install` from a clean checkout, `npm run test:browser:release` on its own (its two projects are included in #12).
-
-## A.4 Requirements and Acceptance Criteria Coverage (Run 3)
-
-"Basis": **Read** = I read the test body this run (acceptance, privacy, releaseGuard, scanDist, demoMode, `appController` lines 255-520, status loading tests, location first-paint tests, `e2e/release.spec.ts`; plus Run 2 readings of others, which I did not re-read although several files changed, so treat those as Run 2 evidence); **Title** = mapping from titles only (the e2e specs `accessibility`, `browserApis`, `layout` were run but their bodies were not read this run). **Mut** = I broke `src/` and the test failed (A.9). Statuses: **Verified (fakes/jsdom)**, **Verified (Edge+Chrome automation)**, **Partial**, **Not verified**. Nothing here is real-provider evidence.
-
-### A.4.1 Acceptance criteria
-
-| AC | Tests | Basis | Status and gap |
-|----|-------|-------|----------------|
-| AC-001-1 | acceptance "AC-001-1" (heading, values, 3 rows, search arg `Oslo`, weather call key); `search.test`; `appController` | Read | Verified (fakes). Real provider not available |
-| AC-001-2 | acceptance "AC-001-2" (with and without country; exact heading text) | Read | Verified (fakes) |
-| AC-001-3 | acceptance "AC-001-3" (message text; zero weather calls) | Read | Verified (fakes) |
-| AC-001-4, AC-P-01 | acceptance `it.each` x3 (empty, 3 spaces, tab+space; field value asserted; prompt shown; zero geocoding and weather calls); `search.test`; core `search.test` | Read | Verified (fakes). Implementer's trim mutation reported, not repeated by me |
-| AC-001-5 | acceptance "AC-001-5 / EC-005" (error result, then a throwing port with a secret string that must not be shown; recovery) | Read | Verified (fakes) |
-| AC-002-1, AC-002-5 | acceptance (granted, `start()` calls position once, heading, values); `appController` launch tests; e2e "granted at launch" (Edge, Chrome, real adapter with test-granted permission) | Read / Title | Verified (fakes) and (Edge+Chrome, test-granted permission). **Real permission prompt not verified** |
-| AC-002-2 | acceptance (0 position calls at launch; 1 after click); `location.test` first-paint (prompt, denied, unsupported) and separate granted test; `appController` it.each; e2e "not granted: nothing asks at launch" | Read | Verified. Real prompt not verified |
-| AC-002-3, AC-002-4 | acceptance (denied, timeout, unavailable; city search still enabled and works); `geolocation.test`; e2e refused request | Read / Title | Verified (fakes, stubs, Edge+Chrome refusal). **Real user ignoring the prompt (known limitation: timeout starts only after the prompt is answered) not verified** |
-| AC-003-1 | acceptance (labels Temperature/Humidity/Condition; values) | Read | Verified (fakes) |
-| AC-003-2 | acceptance (decorative `.icon-slot`, `data-icon-key`, text beside it); `conditions.test` | Read | **Partial**: icon is a placeholder (TASK-035 blocked); real icons not verifiable |
-| AC-003-3 | acceptance (F toggle `71°F`, forecast in F, persists across a re-created app over the same fake store); `unitToggle.test`; e2e real reload keeps unit | Read / Title | Verified (fakes; Edge+Chrome real `localStorage`) |
-| AC-003-4 | acceptance (**humidity missing only**: `0°C`, `Unavailable`, `Clear`); `currentWeather.test` (each field missing, Mut E); `format.test` | Read / Mut | Verified. **Gap:** the scenario test covers only a missing humidity; missing temperature/condition are covered at component level only (mutation E did not fail the scenario test) |
-| AC-003-5 | acceptance (error in current section, forecast unaffected, Retry recovers) | Read | Verified (fakes) |
-| AC-004-1, AC-004-2 | acceptance (3 rows; date, "High 20°C, Low 10°C", condition) | Read | Verified (fakes). The expected date text is produced by the same `formatForecastDate` the app uses (self-referential for formatting); time-zone basis (FR-025) depends on the provider: Unverified |
-| AC-004-3 | acceptance (icon slot per row) | Read | **Partial** (placeholder icons) |
-| AC-004-4 | acceptance (1 day supplied: 3 rows, 2 "unavailable") | Read | Verified (fakes) |
-| AC-004-5 | acceptance (forecast error with Retry; current stays; Retry recovers) | Read | Verified (fakes) |
-| AC-005-1, AC-005-2, AC-005-5 | acceptance (no button before weather; refresh calls both sections for the same key; values and last-updated change with the fake clock) | Read | Verified (fakes). Last-updated rule is "older section time" (a design default) |
-| AC-005-3, AC-P-03 | acceptance (5 clicks: 2 calls per section total, 1 pending, button `aria-disabled`); `appController` "rapid refreshes"; "M3"; `refresh.test`; `robustness.test` | Read / Mut | Verified (fakes). Layers are redundant: removing the M3 guard failed exactly one test (Mut A); removing one UI layer failed none (Mut J). That is defence in depth, not a gap, but it means this AC does not pin any single layer |
-| AC-005-4, AC-P-02 | acceptance (both fail: values, rows and time unchanged); partial-failure test; `weatherService` tests | Read / Mut | Verified (Mut B: 5 tests failed) |
-| AC-006-1, AC-006-2 | acceptance (Add; list shows `<place> Showing`) | Read | Verified (fakes) |
-| AC-006-3 | acceptance (select favorite loads by stored key; geocoding calls = 0) | Read | Verified (fakes) |
-| AC-006-4 | acceptance (add twice: 1 stored record, 1 list item, no Add button) | Read | Verified (fakes) |
-| AC-006-5 | acceptance (remove; empty message; weather stays; Add returns) | Read | Verified (fakes) |
-| AC-006-6, AC-P-05 | acceptance (new app over the same in-memory store); e2e real page reload with real `localStorage` (Edge, Chrome) | Read / Title | Verified (fakes) and (Edge+Chrome). Firefox/Safari, closing and reopening the whole browser, private mode: Not verified |
-| AC-007-1 | acceptance (landmarks, one section order, nav links reach headings: **structure only**); e2e layout (320/768/1280/1920: tiers, no horizontal scroll, panels inside viewport, arrangement matches CSS) | Read / Title | **Partial**: geometry only. "Clear, organized, easy to read" is a visual judgement: **Not verified** |
-| AC-007-2 | see AC-003-2, AC-004-3 | | **Partial** |
-| AC-007-3, AC-P-04 | acceptance AC-003-1 test (`dt` labels; `°C`, `%`); `format.test`; `currentWeather`, `forecast` tests | Read / Title | Verified (fakes) |
-| AC-007-4 | e2e layout (4 viewports x 2 browsers, resize); `styles.test` (CSS text; Mut M) | Title / Mut | **Partial**: geometry in Edge/Chrome only. Appearance, other browsers, real phone: Not verified. Wide-tier visual vs tab order: open user decision, not tested for acceptability |
-| AC-007-5 | acceptance (Loading weather.../Loading... then error state, no `dl`); `status.test` (immediate indicator; locating/searching) | Read | Verified (state-derived rendering on a fake clock). Real latency Unverified (NFR-004 TBD) |
-| AC-007-6 | acceptance (structure); `app.test`; `focus.test`; e2e keyboard-only flow | Read / Title | Partial: consistency of controls is checked structurally and by an automated Tab flow; no human usability judgement |
-| AC-P-06 | none | | TBD thresholds: Not verifiable |
-
-### A.4.2 Functional and non-functional requirements
-
-| Requirement | Evidence | Status |
-|-------------|----------|--------|
-| FR-001..006 | AC-001-1..5 rows | Verified (fakes) |
-| FR-007 (TBD) | acceptance chooser test; core `search.test` (Unicode, trim, limit, length) | Defaults only; real provider ambiguity Unverified |
-| FR-008..011 | AC-002 rows; `locationFlow.test`; `geolocation.test`; e2e | Verified (fakes/stubs/Edge+Chrome automation); real prompt Not verified |
-| FR-012, FR-031 (TBD) | `config.test`, `locationFlow`/`weatherService` fake-timer timeout tests | Defaults only; real timing Unverified |
-| FR-013, FR-039 (TBD) | `appController` launch policy; device-favorite tests; `privacy.test`; `favorites.test` | Verified (fakes); real reverse geocoding not built |
-| FR-014..FR-019, FR-042 | AC-003 rows | Verified (fakes) except icons (FR-015, FR-041 Partial) |
-| FR-020..FR-024 | AC-004 rows | Verified (fakes); FR-022 icons Partial |
-| FR-025 (TBD) | `config.test`; `weatherService` passes defaults | Defaults only; time-zone basis Unverified |
-| FR-026..FR-030 | AC-005 rows | Verified (fakes) |
-| FR-032..FR-037 | AC-006 rows | Verified (fakes; Edge+Chrome for persistence) |
-| FR-038 (TBD) | `favoritesService`, `identity`, `config` tests (Mut D, H) | Defaults only |
-| FR-040, FR-043 | AC-007-1, AC-007-4 rows | Partial (geometry only) |
-| FR-041 | AC-007-2 row | Partial |
-| FR-044 | AC-007-5 row; `status.test`; `liveRegions.test` | Verified in jsdom; no assistive-technology check |
-| FR-045 | AC-007-6 row | Partial |
-| NFR-001 | `appController` "every intent resolves when every port throws"; `status.test` leak tests; ErrorBoundary tests; e2e: no page errors or console output | Verified (fakes; Edge+Chrome demo session) |
-| NFR-002, NFR-007 | e2e layout in Edge and Chrome only | **Partial**: Firefox, Safari, real devices Not verified; target browsers/viewports are TBD (OQ-001/005/011) |
-| NFR-003 | `accessibility.test` (axe in jsdom, contrast off); e2e axe WCAG 2.1 A/AA with colour contrast evaluated at 320 and 1280 px in 5 states (Edge, Chrome), visible focus ring on every Tab stop, targets at least 44x44 px, keyboard-only flow, 2.5.3 regression test | **Partial**: screen readers, zoom 200/400%, text spacing, forced colours, real phone Not verified; icons Not verifiable |
-| NFR-004 (TBD) | `status.test` (indicator at 0 ms on a fake clock); fake-timer 10 s timeout | **Not verified** (no latency measurement; provider absent) |
-| NFR-005 | `privacy.test` (search text and device coordinates not in storage, cookies, URL, console; control cases), `locationFlow` source scan, e2e real storage keys and origin-only requests (Edge, Chrome) | Verified for what the app does today (demo, fakes). Real provider traffic and a human's browser inspection: Not verified |
-| NFR-006 | `privacy.test` hostile text renders as text (Mut L); `sourceScan` (no HTML sinks, no non-HTTPS URL, env reads only in `main.tsx`); `secretScan`; `scan:dist` | Partial: HTTPS-only provider URLs and URL encoding **not verifiable** until TASK-022/023; secret scan is a pattern scan, not proof |
-| NFR-008 | `format.test` | Single locale only |
-
-## A.5 Post-review fixes (Run 3 status)
-
-| Fix | Evidence | Status |
-|-----|----------|--------|
-| Batch 1: M1 unresolved device key, M2 failed locate, M3 refresh during load, L1 listener isolation, L4 config/favorites cap, L6 error clearing/settings notice, L7 key escaping | `appController` M1/M2/M3/L6 tests (Read); Mut A (M3), Mut D (L7); others by Run 2 reading | Passed |
-| Batch 2: M1 search never disabled (Mut K), M2 focus (`focus.test`), M3 one announcer (`liveRegions`), M4 grid (Mut M), M5 idle state, M6 demo opt-in (`demoMode` Read), L1..L4 | as stated | Passed (jsdom only for focus/announcer; CSS text only for M4/L3) |
-| TASK-031/032 WCAG 2.5.3 shown-favorite name | `favorites.test` "Label in Name"; e2e "displayed favorite button name contains its visible text" (Edge, Chrome); Mut I broke `aria-current` and 2 tests failed | Passed |
-| TASK-036 follow-up: demo excluded from release | A.1 rows 5-11; `releaseGuard`/`scanDist`/`demoMarkers` tests; `release.spec` (Edge, Chrome); Mut O, P, Q and the `main.tsx` mutation | Passed |
-| TASK-043 follow-up: `build:release`, guard, structural markers, unreadable-file failure | same | Passed |
-| TASK-038 weak-test tightening (demoMode wiring, M1 storage, refresh-cancel, first-paint, loading delay) | I read the rewritten tests; they now discriminate (A.8) | Passed |
-
-## A.6 Failures and Defects Observed
-
-**No command failed unexpectedly, no test failed, none was skipped.** Observations (not failures):
-- jsdom prints `Not implemented: HTMLCanvasElement's getContext()` during `npm test`.
-- `impl-plan.md` approval-status text is internally inconsistent (A.2). Not edited.
-- The release build shows only the "not set up" page (expected).
-- The two generic demo UI sentences remain in release JavaScript (known, inert, documented by the Implementer; not a scan marker).
-- Wide-tier visual order differs from tab order (open user decision).
-- Playwright's `test:browser` overwrites `dist/` with the release build (documented).
-
-## A.7 Blocked, Not Run, and Unverified (Run 3)
-
-| Item | Classification |
-|------|----------------|
-| TASK-001 provider facts (terms, attribution, rate limits, reverse geocoding, CORS, forecast time zone) | **Unverified / Blocked (user action).** Nothing assumed about any provider |
-| TASK-002 icon set, deferred values | Blocked (user action) |
-| TASK-022, 023, 024, 025 (provider adapters, reverse geocoding, attribution), TASK-035 (icons), TASK-037 (live wiring), TASK-042 (latency), TASK-046 (release) | **Not built / not approved / Blocked.** No real provider call, payload, unit, time zone, CORS, rate limit or latency evidence exists |
-| Screen readers (NVDA, VoiceOver) and "announced once" behaviour | **Not run** (manual) |
-| Firefox, Safari, real phone/tablet, other OS | **Not run** (manual; none installed or available to automate) |
-| Real location permission prompt (allow, deny, ignore the prompt) | **Not run** (manual). Automation uses test-granted/refused permission and stubs |
-| Visual review at 320, 768, 1280, 1920 px; "clear and organized" | **Not run** (manual). Only geometry assertions ran |
-| Browser zoom 200/400%, text-spacing overrides, forced-colours/high-contrast | **Not run** (manual) |
-| Wide-tier visual order (Search, Favorites, Current, Forecast) vs DOM/tab order acceptability | **Not run**; user decision pending |
-| Closing and reopening a whole browser; private-mode storage behaviour; storage inspection in the user's own browser | **Not run** (only a page reload in Edge/Chrome was automated) |
-| Code coverage | **Not run**: no coverage provider in `node_modules` (only `@vitest/mocker`, `@vitest/spy`); installing one was not authorized. No coverage figure exists |
-| Mutation testing as a tool | **Not run** as a tool. Only 18 hand-made mutations (A.9); everything else relies on the Implementer's reported mutation checks |
-| Requirements with TBD answers (FR-007, 012, 013, 017, 025, 031, 038, 039; NFR-002, 003, 004, 007, 008; EC-003, 004, 015, 016, 018, 019) | Checked only against the implementation's defaults; user values unconfirmed |
-| `npm install` from a clean checkout; `npm run dev`; `npm run dev:demo`; hosting/HTTPS deployment; README followed by a fresh reader | **Not run** |
-| Independent Code Reviewer re-review of the TASK-038/039/040/041/043 follow-ups; TASK-044 human review | **Not done** (not a Verifier activity) |
-
-## A.8 Test bodies read, weak tests, tests that cannot fail
-
-**Read this run:** `test/scenarios/acceptance.test.tsx` (all 37), `test/security/privacy.test.tsx`, `releaseGuard.test.ts`, `scanDist.test.ts`, `test/ui/demoMode.test.tsx`, `test/core/appController.test.ts` lines 255-520 (favorites, refresh, M1/M2/M3/L6), `status.test.tsx` lines 20-110, the first-paint part of `location.test.tsx`, `e2e/release.spec.ts`; plus the relevant `src/` files. **Not re-read this run (mapping rests on titles or on Run 2 reading, though several files changed):** `search`, `currentWeather`, `forecast`, `unitToggle`, `app`, `composition`, `focus`, `liveRegions`, `robustness`, `refresh`, `favorites`, `styles`, `accessibility`, `noLiterals`, `sourceScan`, `secretScan`, `demoMarkers` (bodies), all core/adapter tests not named above, and the three e2e specs `accessibility`, `browserApis`, `layout`.
-
-**Run 2 weak tests, re-checked:** (1) demoMode wiring: now discriminating (platform stubs assert `getCurrentPosition`/`query` never called; a control proves live mode does call them) - fixed. (2) storage isolation: `chooseCandidate` awaited, real stored content seeded - fixed. (3) M1 storage test now seeds storage, asserts zero writes and equal map - fixed. (4) favoritesService "resolved named place": fails under Mut H, so it can fail - ok. (5) first-paint title/body now match, granted case separate - fixed. (6) loading-delay `it.each` replaced by an "on screen before any fake time passes" test - fixed. (7) refresh-cancel test now asserts 99 absent - fixed. (8) `focus.test` "an error leaves focus in the search form": **unchanged, not re-examined, still weak** (fails only if code steals focus). (9) `styles.test`: Mut M (Favorites moved to row 3) failed it, so the CSS-text check can fail for plain selectors; it still pins text, not rendered layout. (10)/(11) jsdom axe (contrast off) and `aria-live` structure tests: unchanged limits; the real-browser axe spec (contrast evaluated) is the stronger evidence. (12)/(13) not re-read.
-
-**Weak or limited tests found this run:**
-1. `scanDist.test.ts` "the scan command exists" only asserts the file exists (trivially true; the exit-code tests above it are the real checks).
-2. `privacy.test.tsx` "the persisted-text scan can fail" tests the helper itself (a control, not a product check).
-3. `scanDist.test.ts` "the actual dist/ folder" uses `allowDemo: true`, so it does not distinguish a release from a demo build; the release-vs-demo check is `scan:dist` itself and `release.spec`. It is also `skipIf` no `dist/` (visible as skipped; it ran here).
-4. `acceptance.test.tsx` AC-003-4 covers a missing humidity only (Mut E did not fail it).
-5. `acceptance.test.tsx` AC-004-2 builds its expected date text with the app's own `formatForecastDate`; the date test cannot catch a wrong format function, only a wrong date value.
-6. `acceptance.test.tsx` AC-002-1 calls `controller.start()` directly; the real boot path in `src/main.tsx` (dynamic import, then `start()`) is covered only by the e2e specs and `release.spec`, not by a unit test.
-7. AC-005-3 / AC-P-03 pass if any one of the four guard layers works (Mut A, J), so no single layer is pinned by the scenario test (the unit tests for M3 do pin the controller layer).
-8. AC-007-1, AC-007-4, AC-007-6: structure and geometry only.
-9. All "announced" tests check DOM attributes, not what assistive technology says.
-
-**Tests that cannot fail:** I found **none wholly incapable of failing** in the files I read; items 1 and 2 above are the closest (trivial or control-only). I did not mutation-check the other ~780 tests; "can fail" for those is by reading or by the Implementer's report, not by my own proof.
-
-## A.9 Mutation spot-checks (temporary; `src/` and `scripts/` restored)
-
-Method: copy file to a backup outside the repo (done once, before any change); apply one text replacement; run the named test files; restore from the backup; compare. Each row is one mutation, one run.
-
-| ID | Mutation | Tests run | Result |
-|----|----------|-----------|--------|
-| A | controller: remove the "refresh ignored during initial load" guard | `appController`, `acceptance` | 1 of 78 failed ("M3: a refresh during the initial load ...") |
-| B | weatherService: failed section drops previous `updatedAt` | `weatherService`, `acceptance` | 5 of 56 failed (3 weatherService, AC-005-4/P-02, partial-refresh scenario) |
-| C | weatherService: shared time uses the newer, not the older, section time | same | 1 of 56 failed ("both get the older time") |
-| D | identity: stop escaping `|` and `\` | `identity` | 1 of 13 failed (L7) |
-| E | format: missing temperature becomes 0 | `format`, `acceptance`, `currentWeather` | 4 of 70 failed (3 format, 1 currentWeather); **no acceptance test failed** (gap, A.8 item 4) |
-| F | localStorageStore.get rethrows | `localStorageStore`, `acceptance` | 3 of 43 failed |
-| G | geolocation: absent Permissions API gives `granted` | `geolocation`, `demoMode` | 1 of 31 failed |
-| H | favoritesService: remove its device-source rejection (one layer) | `favoritesService`, `appController`, `privacy` | 3 of 71 failed, all in `favoritesService` (the controller layer independently still refuses) |
-| I | FavoritesPanel: remove `aria-current` | `favorites`, `acceptance`, `focus` | 2 of 63 failed |
-| J | RefreshBar: onClick ignores busy | `refresh`, `robustness`, `acceptance` | **0 failed (survived)**: redundant layers (A.8 item 7) |
-| K | SearchPanel: block submit while a search is pending | `search`, `acceptance` | 1 of 51 failed |
-| L | CurrentWeatherCard: place name via `dangerouslySetInnerHTML` | `privacy`, `sourceScan`, `currentWeather` | 3 of 48 failed |
-| M | styles.css: wide Favorites in row 3 | `styles` | 1 of 10 failed |
-| N | RefreshBar: hard-coded visible text | `noLiterals` | 1 of 6 failed |
-| O | demoMarkers: `Testville` pattern disabled | `demoMarkers`, `scanDist` | 4 of 97 failed |
-| P | releaseGuard: guard turned into a no-op | `releaseGuard` | 6 of 16 failed (incl. the two real-build tests) |
-| Q | scanDistLib: unreadable files no longer fail | `scanDist` | 1 of 35 failed |
-| R | `src/main.tsx`: demo import made unconditional | build into a temp folder, `scan:dist` on it, `sourceScan` | build exit 0; **`scan:dist` exit 1** with 2 findings (`composeDemo`, demo module reference); `sourceScan`: 2 tests failed |
-
-17 of 18 mutations were detected; 1 (J) survived as a redundant-layer case. **Restoration proof:** SHA-256 of every file under `src/`, `test/`, `e2e/`, `scripts/` plus `package.json`, `tsconfig.json`, `vite.config.ts`, `playwright.config.ts`, `eslint.config.js`, `index.html`, `package-lock.json`, `impl-plan.md`, `requirements.md` (128 files) was taken before the first mutation and again after the last: `diff` of the two lists printed no differences; `diff -r` of `src`, `test`, `scripts` against the pre-mutation backup was clean; each mutated file was also re-hashed against its backup inside the runner (`restored: true` for all 17 runner mutations; `cmp` for `main.tsx`). `dist/` was not touched by the mutations (the mutation build went to a temp folder; the dist hashes still match).
-
-## A.10 Per-task verdicts
-
-Verdicts: **Verified** = the task's own completion criteria are met by evidence from this run, within the stated limits; **Partially verified** = part of the task's criteria is met, part needs manual or unavailable evidence; **Not verifiable here** = the remaining criteria cannot be checked with the local tools. "Verified" always means against fakes/stubs/demo data and (where stated) Edge and Chrome automation, never a real provider.
-
-| Task | Verdict | Basis and what is missing |
-|------|---------|---------------------------|
-| 003 scaffold | Verified | typecheck, test, lint, build run; "clean checkout" not run |
-| 004 Result/AppError | Verified | `errors.test`; message-key and no-leak tests |
-| 005 domain types | Verified | typecheck + `domain.test` |
-| 006 ports | Verified | `ports.test`, typecheck |
-| 007 config | Verified (defaults) | `config.test`; TBD values unconfirmed |
-| 008 identity | Verified | Mut D |
-| 009 formatting | Verified | Mut E; single locale |
-| 010 conditions | Verified (mapping) | `conditions.test`; assets are TASK-035 |
-| 011 forecast helpers | Verified | `forecast.test` (body not re-read this run) |
-| 012 fakes | Verified | `fakes.test` |
-| 013 search service | Verified (fakes) | tests pass; two Implementer decisions await the user |
-| 014 weather service | Verified (fakes) | Mut B, C; real timing Unverified |
-| 015 location flow | Verified (fakes) | `locationFlow.test`; real prompt/timeout limit not verifiable |
-| 016 favorites service | Verified | Mut H |
-| 017 settings | Verified | `settings.test`; real reload in e2e |
-| 018 store | Verified | `store.test` |
-| 019 app controller | Verified (fakes) | Mut A; race tests read |
-| 020 localStorage adapter | Verified (Edge, Chrome) | Mut F; other browsers not run |
-| 021 geolocation adapter | Partially verified | stubs + Edge/Chrome with test permission (Mut G); real prompt, ignoring the prompt, Permissions API outside Chromium: Not verifiable here |
-| 026 shell/layout | Partially verified | structure + Edge/Chrome geometry; visual quality, other browsers, tab-order decision not verified |
-| 027 search UI | Verified (fakes) | Mut K |
-| 028 current weather card | Partially verified | placeholder icons (TASK-035); visual not checked |
-| 029 forecast list | Partially verified | placeholder icons; time-zone basis (FR-025) Unverified |
-| 030 refresh/last updated | Verified (fakes) | Mut J survived only because of redundant layers |
-| 031 favorites UI | Verified (fakes; Edge+Chrome reload) | Mut I; screen reader not run |
-| 032 location control | Partially verified | real prompt not run |
-| 033 unit toggle | Verified | `unitToggle.test`, scenario and e2e flow |
-| 034 status/errors | Partially verified | leak and loading tests pass; real latency and screen-reader announcement not verified |
-| 036 composition (demo) | Verified | build/scan/negative checks, `demoMode`, `release.spec`; live wiring is TASK-037 (not built) |
-| **038 scenario tests** | **Verified, with stated exceptions - see A.11** | 37/37 pass; mapping A.4; sample mutations caught |
-| 039 accessibility | Partially verified | Edge/Chrome automation passed; manual list in A.7 outstanding; icons not verifiable |
-| 040 responsive/browser | Partially verified | Edge/Chrome only; manual list in A.7 outstanding |
-| 041 security/privacy | Partially verified | automated checks pass (Mut L, O, P, Q, R); HTTPS-only URLs and URL encoding **not verifiable here** (no adapter); user's own storage/network inspection not done |
-| 043 HTTPS static build/deploy notes | Verified (build, scan, guard) | hosting not chosen; HTTPS hosting not tested; `docs/deployment.md` not independently reviewed |
-| 044 code review | Partially verified | `sourceScan` conformance tests pass; the independent code review itself is **Not verifiable here** (not a Verifier activity) |
-| 045 documentation | Partially verified | README script names and 6 config defaults match the repo; not validated by a fresh reader; `npm install`/`dev`/`dev:demo` not run |
-
-## A.11 TASK-038: can it move from "In Progress - pending Verifier" to Complete?
-
-**On Verifier evidence: yes, to Complete scoped as "scenario tests for AC-001..007 and AC-P-01..05 against fakes (jsdom) plus Edge/Chrome automation", with these stated exceptions that must stay visible:** (1) AC-003-2, AC-004-3 and AC-007-2 are Partial (placeholder icons, TASK-035); (2) AC-007-1 and AC-007-4 are only geometry in the scenario/e2e tests, and AC-007-6 is structural, so "clear, organized, easy to read" is not verified; (3) AC-P-06 and every TBD threshold are open; (4) nothing here involves a real provider. The task's own completion criterion (an AC-to-test mapping with results, and failures reported) is met by A.4 and A.1: 37/37 scenario tests passed in two full runs, and 17 of 18 hand mutations were caught (the survivor is an explained redundancy). **Not covered by me, and still open per `impl-plan.md` item (2):** the Code Reviewer has not re-reviewed the follow-up edits; I did not perform a code review. I also did not mutation-check every scenario test and found one scenario-level gap (AC-003-4 covers only a missing humidity). Changing the status is the Orchestrator's decision; I did not edit `impl-plan.md`.
-
-## A.12 Coverage Gaps and Required Follow-up
-
-1. User actions TASK-001 and TASK-002 (provider facts, icons, deferred values) remain the blockers for any real-provider or icon verification.
-2. Manual checks listed in A.7 (screen reader, Firefox/Safari/phone, real prompt, visual review at 320/768/1280/1920, zoom, forced colours, wide-tier order decision) are required before TASK-039 and TASK-040 can be closed; record results in `impl-plan.md`/this file.
-3. Add a scenario assertion for a missing temperature and a missing condition (AC-003-4), a test of the real `main.tsx` boot path, and strengthen `focus.test` "error leaves focus in the search form" if wanted. These are suggestions; the Verifier changed no tests.
-4. Decide on adding a coverage tool (needs authorization to install).
-5. Resolve the `impl-plan.md` approval-status inconsistency (A.2) and decide TASK-038's status (A.11).
-6. Re-run all of A.1 after any change to `src/`, `test/`, `e2e/`, `scripts/` or configuration. These results apply only to the repository as it stood on 2026-10-27 between 00:05 and the end of this run. This is **not** a release-readiness statement: TASK-037, 042 and 046 remain blocked, and no real weather provider has been exercised.
-
----
-
-# PART B - RUN 2 (earlier run, 2026-10-26; SUPERSEDED by Part A / Run 3, kept as recorded): TASK-003..021, TASK-026..034, TASK-036
-
-> Historical record: statements about impl-plan.md Section 10 reflect the file at the time of this run; it was corrected afterwards (see top note).
-
-> **Superseded.** Its "(current)" wording below referred to the time it was written. Counts (495 tests), the "demo providers ship in the production bundle" observation, the weak-test list and the "TASK-038..046 Not run" statements are out of date; see Part A.
-
-Date: 2026-10-26 (test run started 21:01:32 local). Author: Verifier. No source, test or configuration file was modified. This file is the only artifact written. Side effects: `npm run build` and `npm run build:demo` regenerate `dist/`; `npm run build` was run once more at the end so `dist/` holds the production (non-demo) build. Two temporary helper files were written to the user temp directory, outside the repository.
-
-## A1. Verification Summary
-
-| Command | Exit | Result |
-|---------|------|--------|
-| `npm run typecheck` | 0 | Passed, no diagnostics |
-| `npm test` | 0 | Passed: 36 files, 495 tests, 0 failed, 0 skipped (7.20 s) |
-| `npm run lint` | 0 | Passed, no output beyond the npm banner |
-| `npm run build` | 0 | Passed: 58 modules, `index-Dk8snRJx.js` 262.35 kB (80.81 kB gzip), CSS 3.30 kB |
-| `npm run build:demo` | 0 | Passed: 58 modules, `index-C3h83vvL.js` 262.35 kB (80.80 kB gzip) |
-| `npm audit` | 0 | "found 0 vulnerabilities" (network was available; single run, registry state at that time) |
-
-All automated checks passed. This shows that the core logic, two browser adapters and the React UI behave as the tests specify **in jsdom, against fakes and stubs**. It does **not** show that the app works in a real browser or against a real weather provider. Nothing was opened in a browser. Requirement-level verification remains partial (A3, A6, A7).
-
-## A2. Scope and Environment
-
-- Repository: `<project root>` (not a git repository; no diff available; scope taken from `impl-plan.md` and the files present). Windows 11, Git Bash, Node v24.21.0, npm 11.19.0, Vitest v5.0.5, Vite v8.3.5. Nothing was installed.
-- Scope: TASK-003..021 and TASK-026..034, TASK-036 as implemented, including the post-review fixes recorded in `impl-plan.md`: batch 1 (M1, M2, M3, L1, L4, L6, L7 on core tasks) and batch 2 (Code Reviewer findings M1-M6 and L1-L4 on UI tasks 026-034 and 036).
-- Approval basis: the task instruction names these tasks as approved, and the batch-2 review-fix notes say "user-approved". I cannot independently confirm the original approvals. **Conflict not reconciled:** `impl-plan.md` line 3 and Section 10 still say "NO task is approved for implementation / Tasks approved: none". `requirements.md` is Approved with OQ-001 to OQ-014 still TBD; TBD requirements were checked only against the implementation's defaults.
-- Test environments: `vite.config.ts` sets `environment: 'node'`. The 15 `.tsx` UI test files opt in to jsdom with `// @vitest-environment jsdom` (I confirmed the docblock in the files I read; I did not open the headers of `app`, `search`, `currentWeather`, `forecast`, `unitToggle` and `composition`). `noLiterals.test.ts` and `styles.test.ts` run in node and read source/CSS as text. jsdom has no layout, so no layout-dependent claim can be made from these tests.
-- Out of scope / not built: TASK-001, 002 (user actions), TASK-022 to 025 (provider adapters, attribution), TASK-035 (icons; `IconSlot` is a placeholder), TASK-037 (live provider wiring), TASK-038 to 046.
-
-## A3. Commands Executed and Results (Run 2)
-
-All run from the repository root.
-
-1. `npm run typecheck` (`tsc --noEmit`). Exit 0. Passed.
-2. `npm test` (`vitest run`). Exit 0. `Test Files 36 passed (36)`, `Tests 495 passed (495)`, duration 7.20 s. Output also printed `Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package` (a jsdom message, apparently triggered while axe-core runs; not a failure) and an advisory about worker isolation. Passed.
-3. `npx vitest run --reporter=json --outputFile=<temp>/vr2.json` plus a Node script to read it. Exit 0. 495 total, 495 passed, 0 failed, 0 pending, 0 todo. (A second full run of the suite; consistent with run 1.) Per-file counts are in A3.1. My first helper script had a shell-quoting error and was rewritten; this was not a project failure.
-4. `npm run lint` (`eslint .`). Exit 0. Passed. Whether `dist/` and `node_modules` are excluded by `eslint.config.js` was not examined.
-5. `npm run build` (`tsc --noEmit && vite build`). Exit 0. Passed. Output: `58 modules transformed`; `dist/index.html` 0.39 kB; CSS 3.30 kB; JS 262.35 kB. Run again at the end after `build:demo`; exit 0, same hashes.
-6. `npm run build:demo` (`tsc --noEmit && vite build --mode demo`). Exit 0. Passed. JS hash differs from the production build (`C3h83vvL` vs `Dk8snRJx`).
-7. `grep -c Testville dist/assets/*.js` on each bundle. Result: 1 matching line in both the demo and the production bundle. **Observation:** the demo providers and their invented place names are shipped in the production bundle; the app uses them only when demo mode is requested at runtime (`isDemoRequested`). Not a test failure, but a fact for TASK-041/043 review.
-8. `npm audit`. Exit 0, "found 0 vulnerabilities". Passed for the dependency tree as of the run.
-
-`npm run dev`, `npm run dev:demo`: **Not run** (no specific need; a dev server would not give evidence without a browser).
-
-### A3.1 Test file inventory (JSON reporter)
-
-Unchanged from Run 1, 19 files / 304 tests (smoke 1, errors 18, domain 3, ports 9, config 36, identity 13, format 20, conditions 7, forecast 12, fakes 14, search 18, weatherService 19, locationFlow 22, favoritesService 23, settings 10, store 13, appController 41, localStorageStore 6, geolocation 19). New in Run 2, 17 files / 191 tests:
-
-| File | Tests | Task(s) |
-|------|-------|---------|
-| `test/ui/app.test.tsx` | 12 | 026 |
-| `test/ui/search.test.tsx` | 14 | 027 |
-| `test/ui/currentWeather.test.tsx` | 13 | 028 |
-| `test/ui/forecast.test.tsx` | 10 | 029 |
-| `test/ui/refresh.test.tsx` | 9 | 030 |
-| `test/ui/favorites.test.tsx` | 8 | 031 |
-| `test/ui/location.test.tsx` | 9 | 032 |
-| `test/ui/unitToggle.test.tsx` | 6 | 033 |
-| `test/ui/status.test.tsx` | 33 | 034 |
-| `test/ui/composition.test.tsx` | 5 | 036 |
-| `test/ui/demoMode.test.tsx` | 17 | 036 (review M6) |
-| `test/ui/focus.test.tsx` | 17 | review M2 |
-| `test/ui/liveRegions.test.tsx` | 9 | review M3, M5 |
-| `test/ui/robustness.test.tsx` | 8 | review L1, L2 |
-| `test/ui/accessibility.test.tsx` | 5 | review L4 (axe-core) |
-| `test/ui/styles.test.ts` | 10 | review M4, L3 (CSS read as text) |
-| `test/ui/noLiterals.test.ts` | 6 | 034 (AST scan) |
-| **Total** | **191** (304 + 191 = 495) | |
-
-## A4. Post-review fixes (both batches)
-
-Basis column: **Body** = I read the test bodies in this run; **Title** = mapping rests on test titles and Implementer notes only.
-
-| Fix | Evidence | Basis | Status |
-|-----|----------|-------|--------|
-| B1 M1 unresolved device key per coordinates | `appController.test.ts` "M1: a second Use my location..." (asserts error state has no data and no `updatedAt`); "M1: unresolved device key never written to storage" (weak, see A8) | Body | Passed |
-| B1 M2 failed locate keeps selection and in-flight load | `appController.test.ts` four "M2:" tests | Body | Passed |
-| B1 M3 refresh ignored during initial load | `appController.test.ts` "M3:" (call counts 1 then 2) | Body | Passed |
-| B1 L1 listener isolation | `appController.test.ts` subscriber test (body); `store.test.ts` | Body / Title | Passed |
-| B1 L4 config validation; favorites kept above cap | `favoritesService.test.ts` L4 test (body); `config.test.ts` | Body / Title | Passed |
-| B1 L6 clears earlier errors; settings-not-saved | `appController.test.ts` four "L6:" tests | Body | Passed |
-| B1 L7 escape `\|` and `\` in keys | `identity.test.ts` | Title | Passed (not individually inspected) |
-| B2 M1 Search never disabled; latest wins | `search.test.tsx` "a pending search does not block...", "never disabled" | Title | Passed |
-| B2 M2 focus management | `focus.test.tsx` (17) | Body | Passed in jsdom only |
-| B2 M3 single announced source | `liveRegions.test.tsx` | Body | Passed (DOM structure, not real announcement) |
-| B2 M4 wide-tier grid placement | `styles.test.ts` | Body | Passed on CSS text only; layout not seen |
-| B2 M5 idle section state | `liveRegions.test.tsx` M5 tests | Body | Passed |
-| B2 M6 demo mode opt-in, isolation | `demoMode.test.tsx`, `composition.test.tsx` | Body / Title | Passed, one weak test (A8) |
-| B2 L1 shared refresh guard | `robustness.test.tsx`, `refresh.test.tsx` | Body | Passed |
-| B2 L2 StrictMode, stable subscription, useLayout fallback | `robustness.test.tsx` | Body | Passed |
-| B2 L3 wrapping, `aria-current` non-colour cue | `styles.test.ts` (CSS text), `favorites.test.tsx` (`aria-current`) | Body | Passed on CSS text only |
-| B2 L4 loading-delay and leak tests rewritten; literal scan broadened | `status.test.tsx` (body), `noLiterals.test.ts` | Body / Title | Passed |
-
-## A5. Requirements and Acceptance Criteria Coverage (Run 2)
-
-Statuses: **Tested (jsdom/fakes)** = covered by passing tests against fakes in jsdom or node; this is never real-browser or real-provider evidence. Test files are under `test/`. "Title" marks mapping from titles only.
-
-| Requirement / AC | Covering tests | Basis | Status and gap |
-|------------------|----------------|-------|----------------|
-| FR-001/002, AC-001-1 | `ui/search.test` (one match shown); `core/search.test`; `ui/composition.test` flows | Title (ui/search), Body (appController) | Tested vs fakes. Real provider Unverified |
-| FR-003, AC-001-2 | `ui/search.test` "country only when present"; `ui/currentWeather.test` | Title | Tested vs fakes |
-| FR-004, AC-001-3 | `ui/search.test` "city not found"; `appController.test` | Title / Body | Tested vs fakes |
-| FR-005, AC-001-4, AC-P-01 | `ui/search.test` empty/whitespace/over-long with zero provider calls; `appController.test` empty search | Title / Body | Tested |
-| FR-006, NFR-001, AC-001-5 | `ui/search.test` service error and rejecting provider; `status.test` leak tests; `appController.test` every-port-throws | Body (status, appController) | Tested |
-| FR-007 (TBD) | `core/search.test`, `ui/search.test` chooser | Title | Defaults only |
-| FR-008..011, AC-002-1..4 | `appController.test` launch policy and locate; `ui/location.test`; `core/locationFlow.test`; `adapters/geolocation.test` | Body (appController), Title (rest) | Tested vs fakes/stubs. Real Geolocation prompt/permission/timeout **Unverified** |
-| FR-009 / AC-002-2 (no prompt at first paint) | `ui/location.test` first paint (partly mismatched title, A8); `appController.test` it.each | Body | Tested |
-| FR-012 (TBD) | `config.test`, `locationFlow.test` | Title | Default only |
-| FR-013, FR-039 (TBD) | `appController.test` device favorite tests; `ui/favorites.test` device hint | Body | Tested with fakes; real reverse geocoding not built |
-| FR-014, FR-018, FR-019, AC-003-1/4/5 | `ui/currentWeather.test`; `weatherService.test` | Title (ui), Body (service) | Tested |
-| FR-015/022/041, AC-003-2, AC-004-3, AC-007-2 (icons) | `core/conditions.test`; `currentWeather.test` "decorative icon beside text" | Title | Partial: TASK-035 not built; icons **Unverified** |
-| FR-016/017, AC-003-3 | `ui/unitToggle.test`; `settings.test`; `format.test`; `appController.test` | Title / Body | Tested; FR-017 default only |
-| FR-020..025, AC-004-1/2/4/5 | `ui/forecast.test`; `weatherService.test`; `core/forecast.test` | Title (ui), Body (service) | Tested; FR-025 time-zone basis depends on provider (Unverified) |
-| FR-026..030, AC-005-1..5, AC-P-02, AC-P-03 | `ui/refresh.test` (incl. real-controller five clicks and failed refresh); `ui/robustness.test`; `weatherService.test`; `appController.test` | Body | Tested. Per-section `updatedAt` tests in `weatherService.test` can fail as written |
-| FR-031 (TBD), NFR-004 (TBD) | `weatherService.test` timeout (fake timers); `status.test` loading delay (fake timers) | Body | Defaults only; real latency **Unverified** |
-| FR-032..038, AC-006-1..6, AC-P-05 | `ui/favorites.test`; `favoritesService.test`; `appController.test`; `adapters/localStorageStore.test` | Body (favorites, service, controller), Title (adapter) | Tested vs in-memory fake and stub. Real `localStorage` persistence across reload **Unverified** |
-| FR-040, FR-043, AC-007-1, AC-007-4 (layout, responsive) | `ui/app.test` (landmarks, tiers via stub `matchMedia`); `styles.test` (CSS text) | Title / Body | **Not verified**: no layout engine; 320/768/1280 not checked |
-| FR-042, AC-007-3, AC-P-04 (labels, units) | `currentWeather.test`, `forecast.test`, `format.test` | Title | Tested |
-| FR-044, AC-007-5 (status, loading, errors) | `status.test`, `liveRegions.test` | Body | Tested in jsdom |
-| FR-045, AC-007-6 (navigation, one model) | `app.test`, `focus.test` nav anchors | Title / Body | Tested for DOM only |
-| NFR-002, NFR-007 | none in a browser | | **Not verified** |
-| NFR-003 | `accessibility.test` (axe, contrast disabled), `focus.test`, `liveRegions.test`, `unitToggle.test` keyboard | Body | Structural only. Visible focus ring, contrast, target size, screen reader **Not verified** |
-| NFR-005 | `favoritesService.test`, `appController.test` (named place stored without device coordinates), `locationFlow.test` source scan, `ui/location.test` disclosure | Body | Partial. No test that search text is never persisted; real storage not inspected; no network inspection |
-| NFR-006 | `status.test` (hostile fields and thrown messages never rendered), `currentWeather.test` "text not markup" (Title), `noLiterals.test` | Body / Title | Partial. No bundle secret scan was run; HTTPS/URL-encoding unverifiable (no adapter) |
-| NFR-008 | `format.test` | Title | Single locale only |
-
-## A6. Failures and Defects Observed
-
-No command failed. No test failed or was skipped. Observations (not failures):
-- jsdom printed `Not implemented: HTMLCanvasElement's getContext()` during the test run.
-- The production bundle contains the demo providers and their invented place name (command 7).
-- Documentation conflict: `impl-plan.md` header and Section 10 still say no task is approved.
-- Known limitation from the Implementer: wide-tier visual order (Search, Favorites, Current, Forecast) differs from DOM/tab order; this is an open user decision, not tested for acceptability.
-
-## A7. Blocked, Not Run, and Unverified (Run 2)
-
-| Item | Classification |
-|------|----------------|
-| TASK-001 provider facts (F-005) | **Unverified / Blocked (user action)**; nothing assumed about any provider |
-| TASK-002 icons and licence | **Blocked (user action)** |
-| TASK-022..025 provider adapters, attribution; TASK-035 icons; TASK-037 live wiring | **Not built / Blocked**. No real provider call, CORS, rate limit or reverse geocoding evidence |
-| Real-browser testing of any kind | **Not run**: layout at 320/768/1280 (and 1920), visible focus rings, colour contrast, target size, real Geolocation prompt/denial/timeout, Permissions API, `localStorage` persistence across a real reload and blocked storage |
-| Dev servers (`dev`, `dev:demo`), manual flows A to D | **Not run** |
-| Code coverage | **Not run**: no coverage tool installed (no install authorized); no coverage figure exists |
-| Mutation testing | **Not run**: "can fail" judgments in A8 come from reading test bodies, not from breaking the code |
-| Bundle secret scan, privacy inspection of stored data in a browser | **Not run** (TASK-041 pending) |
-| Latency and NFR-004 targets, real timeout | **Not run / Unverified** |
-| TASK-038..046 | **Not run / Pending** |
-| Requirements with TBD answers (FR-007, 012, 013, 017, 025, 031, 038, 039; NFR-002, 003, 004, 007, 008 and related edge cases) | Checked only against implementation defaults; user values unconfirmed |
-
-## A8. Test bodies read for high-risk areas, and weak tests
-
-Bodies read in full this run: `appController.test.ts` (controller races), `favoritesService.test.ts`, `weatherService.test.ts` (per-section `updatedAt`), `focus.test.tsx`, `liveRegions.test.tsx`, `demoMode.test.tsx`, `favorites.test.tsx`, `accessibility.test.tsx`, `styles.test.ts`, `robustness.test.tsx`, `refresh.test.tsx`, `status.test.tsx`, `ui/helpers.tsx`, first 50 lines of `location.test.tsx`, and the privacy parts of `locationFlow.test.ts`. **Mapping still rests on titles** for: `search.test.tsx`, `currentWeather.test.tsx`, `forecast.test.tsx`, `unitToggle.test.tsx`, `app.test.tsx`, `composition.test.tsx`, `noLiterals.test.ts` (detector tests), and the core `config`, `identity`, `format`, `store`, `settings`, `search`, `forecast`, `conditions`, adapter tests.
-
-Strong tests (read, can fail as written): the stale-result race tests (slow device result after search, slow weather A after B, empty search does not cancel, superseded load not left loading); per-section time tests ("older time", partial failure keeps data and old time, both-fail AC-P-02); the live-region identity check in `liveRegions.test.tsx`; the focus hand-off tests for Retry, Add, Remove, Dismiss.
-
-I found **no test that is wholly incapable of failing**, but these are weak or fragile:
-1. `demoMode.test.tsx` "demo: the device position is never read": the UI click assertion (`/could not be determined/`) would also appear if `compose` wrongly used `BrowserLocationService`, because jsdom has no `navigator.geolocation` and the real adapter reports unsupported with the same message. Only the direct `DemoLocationService` assertions discriminate; the composition wiring of that service is effectively **unverified**.
-2. `demoMode.test.tsx` storage isolation: `void demo.controller.chooseCandidate(...)` is not awaited before `addFavorite`; it works only because selection is set synchronously (fragile). Isolation is tested with an in-memory store, not real `localStorage`.
-3. `appController.test.ts` "M1: the unresolved device key is never written to storage": storage holds nothing in that flow, so `not.toContain('device:')` is nearly vacuous. The sibling test "device location without reverse cannot be favorited and nothing is stored" is the real check.
-4. `favoritesService.test.ts` "resolved named place... never the device ones": the service never receives device coordinates, so the `not.toContain` checks cannot fail at that level. The controller-level test (device 33.3/44.4, stored must not contain them) is the meaningful one.
-5. `location.test.tsx` "first paint triggers no location request, even with permission already granted or prompt": the loop covers prompt, denied and unsupported, not granted. Title and body differ. Granted auto-detect is covered in `appController.test.ts`.
-6. `status.test.tsx` loading-delay `it.each([0, 50, 200])`: the indicator renders synchronously, so all three measure 0 ms; 50 and 200 add nothing over 0. It checks an upper bound on a fake clock, not real latency.
-7. `appController.test.ts` "a refresh is cancelled when the selection changes" asserts only the final location key, not that A's late data stayed out of B's data (the sibling "slow weather for A after B" does).
-8. `focus.test.tsx` "an error leaves focus in the search form": focus is already in the input from typing; it fails only if code steals focus.
-9. `styles.test.ts` reads CSS as text with a hand-written parser, takes the last declaration regardless of cascade, and by my reading of the parser, rules nested in `@media` blocks would be skipped. It pins text, not rendered layout (M4, L3 not seen).
-10. `accessibility.test.tsx`: contrast rule disabled, jsdom, canvas not implemented; there is no assertion that axe actually evaluated a meaningful number of rules.
-11. All `aria-live`/`role="status"` tests check DOM structure and attributes, not that assistive technology announces anything.
-12. `robustness.test.tsx` second test uses `if (retryForecast.isConnected)` so one click is conditional; the exact call-count assertions still apply.
-13. `locationFlow.test.ts` privacy test is a regex over the `locationFlow` source file only; other modules are not scanned.
-
-## A9. Coverage Gaps and Required Follow-up
-
-- No composed scenario suite for AC-001..007 (TASK-038 pending); `composition.test.tsx` smoke flows A to D in jsdom are the closest.
-- No test that search text is never persisted or logged (NFR-005); no bundle secret scan; production bundle includes demo code.
-- AC-007-1, AC-007-4, FR-040, FR-043, NFR-002, NFR-003 (visual), NFR-007: need a real browser (TASK-039, TASK-040).
-- Fake-based tests cannot validate real provider payloads, units, time zones or condition codes.
-- Known Geolocation limitation (timeout starts after the prompt is answered) is unmitigated and unverified.
-- Decisions awaiting the user: TASK-001/002; NFR-004; `NETWORK` mapped to `SERVICE_UNAVAILABLE`; over-length input returning `NOT_FOUND`; wide-tier visual vs tab order.
-- Resolve the `impl-plan.md` approval-status conflict.
-- Re-run all six commands after any change to `src/` or `test/`. These results apply only to the code as it stood at 2026-10-26 21:01 and later in this run. This is **not** a release-readiness statement; TASK-046 remains blocked.
-
----
-
-# PART C - RUN 1 (earliest run, 2026-10-26; SUPERSEDED by Part A / Run 3, retained as recorded): TASK-003 to TASK-021 only
-
-> Historical record: statements about impl-plan.md Section 10 reflect the file at the time of this run; it was corrected afterwards (see top note).
-
-> **Superseded.** "No UI exists", "304 tests", "placeholder main.tsx", "npm audit not run" and similar statements below were true of Run 1 only.
-
-Date: 2026-10-26. Author: Verifier. Scope: TASK-003 to TASK-021 (including post-review fixes M1, M2, M3, L1, L4, L6, L7 recorded in `impl-plan.md`). No source code, test, or configuration file was modified by the Verifier. This file is the only artifact written.
+# Verification: Weather Forecasting Application
+
+| Field | Value |
+|---|---|
+| Prepared by | Verifier (local multi-agent SDLC workflow) |
+| Date of runs | 2026-11-02 (shell clock, IST; first command 15:16:01, browser suite finished 15:24:03). This is a second re-verification. It replaces the previous version of this file (same date, earlier runs). |
+| Repository / branch | `claude-project` / `feature/weather-app`, HEAD `50bf7d8`, working tree dirty (144 paths in `git status --short`; nothing was committed, pushed or changed by this verification) |
+| Files changed by the Verifier | This file only. `dist/` (gitignored) and `test-results/` were regenerated by the commands below. No source, test, config or other document was edited. |
+| Overall result | 5 of 6 commands exited 0. `npm run smoke:live` FAILED on both attempts (3 of 3 tests failed each time, exit 1): the geocoding request returned `{"kind":"network"}` while DNS on this machine was intermittently failing (observed, Section 4). That is an environment failure, not evidence of an adapter defect, but it means there is STILL no live-API evidence for the current adapter code. Passing commands do not show that all approved requirements are met: see Sections 3, 6 and 7. |
 
 ## 1. Verification Summary
 
-| Check | Result |
-|-------|--------|
-| `npm run typecheck` | Passed (exit 0) |
-| `npm test` | Passed (exit 0): 19 files, 304 tests, 0 failed, 0 skipped |
-| `npm run lint` | Passed (exit 0), no warnings or errors printed |
-| `npm run build` | Passed (exit 0): `tsc --noEmit` then `vite build`, 15 modules, bundle emitted |
+| Check | Result | Count / key evidence |
+|---|---|---|
+| `npm test` | Passed | 54 files, 1439 tests passed, 0 failed (previous run: 54 / 1419) |
+| `npm run typecheck` | Passed | `tsc --noEmit`, exit 0, no output |
+| `npm run lint` | Passed | `eslint .`, exit 0, no output |
+| `npm run build:release` (standalone) | Passed | exit 0; `scan:dist` "no findings"; JS 285.15 kB (87.38 kB gzip; scan reports 86350 bytes gzipped, budget 200000) |
+| `npm run smoke:live` | **Failed (environment: intermittent DNS)** | Run twice, both exit 1, 3 of 3 tests failed each time; geocoding step `{"kind":"network"}` after about 7.1 s. Blocked for requirement evidence. It was NOT a pass, and it would not cover "today plus two days" even on a working network (Section 5, O-1). |
+| `npm run test:browser` | Passed | 270 passed (54 tests x 5 engine projects), 0 failed, 0 skipped, 0 flaky, `retries: 0`, 5.6 min |
 
-All four automated checks passed. They show that the **core logic and two browser adapters behave as specified by unit tests against fakes and stubs**. They do **not** show that the application works: no UI exists (TASK-026 onward not implemented), no provider adapter exists, and nothing was run in a real browser. The produced bundle renders an empty `<main />` (`src/main.tsx`, a placeholder). Requirement-level verification is therefore partial; see Sections 3, 6 and 7.
+What this establishes: the toolchain is clean; the unit, component and scenario suites pass against fake ports and recorded Open-Meteo fixtures; the release bundle builds and passes the dist scan; the four Playwright specs pass on 5 engines against a release build with Open-Meteo intercepted, now including the failed-search Retry flow.
+
+What it does not establish: any behaviour against the real Open-Meteo API (smoke:live could not reach it; when it last passed, 2026-11-01, it ran older adapter code); any real device or real Edge/Chrome/Safari; the manual checks T-70..T-75 (Not run); the approved single-request `get` port, which has no implementation (Section 7).
+
+## 1A. Changes since previous verification
+
+Previous version of this file: same date, earlier runs, HEAD `50bf7d8`, 1419 unit tests, 260 browser tests, smoke:live failed (no DNS at all), REQ-WF1-05 "Partly".
+
+| Change | Observed evidence |
+|---|---|
+| Unit tests 1419 -> 1439 (+20), still 54 files | `npm test` this run. |
+| Browser tests 260 -> 270 (+2 tests per project; `release.spec.ts` 16 -> 18) | New: "REQ-WF1-05: when the provider fails once, Retry re-submits the last search text and the weather appears" and "an unreadable search response shows the approved M-06 text". Both pass on all 5 projects. |
+| REQ-WF1-05 moved from **Partly** to **Passed (scope-limited)** | `SearchPanel.tsx` now renders a Retry button (M-34) for the kinds service, network, rate_limited, timeout, invalid_response, and five tests in `test/ui/search.test.tsx` plus an e2e test cover it (I read their assertions; Section 3). The previous O-4 finding ("no retry control") is closed. |
+| Refresh while a search is pending is ignored; a refresh result is applied only while the selection is unchanged | `src/core/appController.ts` diff read. Tests read: `appController.test.ts` "a refresh while a search is pending is ignored (N1, A-Q19)", "an old-city refresh that resolves after the new city loaded never overwrites it (DR-18)"; `refresh.test.tsx` "is unavailable while a search is waiting for its answer (N1)". |
+| Messages M-04, M-06 (search), M-25/M-26/M-27 (sections, refresh) | Text in `src/core/messages.ts` matches the `message-wording.md` catalogue for M-04, M-06, M-25, M-26, M-27, M-34 (I compared them). Tests cite these IDs (Section 3). Tests now cite 30 of 45 catalogue IDs (previous: 25). |
+| `ui.dataFrom` removed | `grep -rn dataFrom src test e2e` returns nothing. No test pins the absence (it would be a regression only if reintroduced). |
+| `aria-describedby` removed from the "Use my location" button | Asserted by `location.test.tsx` and `footer.test.tsx` (both `getAttribute('aria-describedby')` is `null`; the privacy text appears once, in the footer). The previous test that asserted the button IS described by the footer is gone/inverted. |
+| Footer test pins `coordinateDecimals = 2` | `footer.test.tsx` "the approved 'two decimal places' wording matches Config.coordinateDecimals (M-24 cannot drift silently)" asserts `createConfig().coordinateDecimals` is 2. `config.test.ts` also asserts the default 2. |
+| smoke:live | Failed again; cause now observed as intermittent DNS (some hosts resolve on some tries), not total DNS loss as before. |
+| Evidence level | Assertions read this session for 31 of 40 IDs fully, 3 partly (was 15 of 40). Section 3. |
 
 ## 2. Scope and Environment
 
-- Repository: `<project root>` (not a git repository, so no change set could be diffed; scope is taken from `impl-plan.md` and the files present).
-- Platform: Windows 11 Enterprise 10.0.26200, Git Bash. Node v24.21.0, npm 11.19.0.
-- Tool versions as reported by the runs: Vitest v5.0.5, Vite v8.3.5. Dependencies were already installed in `node_modules`; nothing was installed or changed.
-- Vitest config (`vite.config.ts`): `environment: 'node'`. There is no DOM environment; adapters are tested with hand-written stubs of `localStorage`, `navigator.geolocation` and `navigator.permissions`.
-- Approval basis: `requirements.md` is Approved (OQ-001 to OQ-014 remain TBD). TASK-003 to TASK-021 are recorded in `impl-plan.md` as approved by the user (recorded by the main session; the Verifier cannot independently confirm the original messages). Requirements marked TBD were verified only against the recommended defaults the implementation used, not against user-confirmed values.
-- Source files inspected: file lists of `src/` and `test/`, `package.json`, `vite.config.ts`, `src/main.tsx`, `impl-plan.md`, `requirements.md`. Test bodies were not all read; the mapping in Section 3 is based on test file names, test titles (read for `appController`, `weatherService`, `favoritesService`) and the Implementer's notes in `impl-plan.md`.
-- Side effect: `npm run build` regenerates `dist/` (a pre-existing build output directory). This is the normal effect of the script.
+| Item | Value |
+|---|---|
+| OS | Windows 11 Enterprise 10.0.26200 (Git Bash shell) |
+| Node / npm | v24.21.0 / 11.19.0 (as recorded in the previous run; not re-queried) |
+| Test runner | Vitest 5.0.5 (environment `node`; UI tests choose jsdom per file), Playwright 1.64.1 (`npx playwright --version`) |
+| Browsers | Playwright-managed Chromium, Firefox, WebKit, plus emulated Pixel 7 and iPhone 14. Real Edge, Chrome, Safari, iOS and Android were NOT driven. |
+| Network | **Intermittent.** See Section 4, commands 5a-5c. Playwright runs intercept the Open-Meteo hosts and do not need the internet. |
+| Baseline for requirement-level claims | `requirements.md` (APPROVED 2026-10-30; 40 IDs: REQ-WF1-01..REQ-WF7-06, REQ-X-01..03; open items Q2, Q10, Q13 includes-today and date format, Q16 icon set, Q26, Q29 deferred to the Architect and not user-approved values). `architecture.md` approved with conditions (header line 5). Wording baseline: `message-wording.md` (header line 5 says approved 2026-10-30, footer Option A). |
+| Inspected, not changed | `package.json`, `playwright.config.ts`, `test/live/openMeteo.live.ts`, `src/composition.ts`, `src/core/appController.ts` (diff), `src/ui/SearchPanel.tsx`, `src/core/messages.ts`, the test files named in Section 3, and `e2e/*.ts` (grep). |
+
+Method and its limits. Section 3 names, for each requirement, the file and test title that asserts it. The column "Evidence" says how I judged it:
+- **A** = I read the body of the named test(s) in THIS session and their assertions support the stated claim.
+- **A-p** = I read the assertions in the previous run and did not re-read them now; the test passed again, but I did not re-check that the body is unchanged.
+- **T** = judged from the test title only.
+
+A claim "A" covers what the named test asserts, not the whole requirement. Two Retry titles in `search.test.tsx` promise more than their bodies assert (Section 3, REQ-WF1-05). Only `acceptance.test.tsx` describe-level labels (`AC-00n-m`, `EC-0nn`, older labels whose numbers I assume, not proved, match WFn AC m), some `appController.test.ts`, `locationFlow`, `favoritesService`, `search.test.tsx` (`REQ-WF1-05`) and `e2e/release.spec.ts` titles carry requirement IDs. Mapping is otherwise by meaning.
+
+Legend for Status: **Passed (scope-limited)** = at least one executed check ran and met its expectation, with the limits in the Note column. **Partly** = part of the requirement has an asserting test and part does not. **Unverified** = no executed check gives sufficient evidence. Passing means the test as written passed. Tests that run only against fakes or an intercepted network do not show behaviour against the real provider or a real device.
 
 ## 3. Requirements and Acceptance Criteria Coverage
 
-Legend: **Unit-tested** = covered by passing unit tests against fakes or stubs only. **Not verifiable** = depends on unbuilt tasks or real environments. "Partial" means the core logic is tested but the user-visible behavior (UI, real provider, real browser) is not.
+Source codes: U = Vitest (fakes or recorded fixtures); E = Playwright on the release build (5 engines, Open-Meteo intercepted); L = smoke:live (could not run).
 
-### 3.1 Test file inventory (from the JSON reporter, run 2 below)
+| Req ID | Named tests (file : title) | Evidence | Status | Note |
+|---|---|---|---|---|
+| REQ-WF1-01 | U `test/scenarios/acceptance.test.tsx`: "AC-001-1: a valid city and submit show weather for that city (current and forecast)" (asserts heading "Oslo, Viken, Norway", values 22°C/60%/Partly cloudy, 3 rows, the geocoder got "Oslo", weather got that place's key); "FR-007 default: several matches wait for a choice, and the chosen one is shown". U `test/ui/search.test.tsx`: "several matches are offered for choice with name, region and country; choosing loads that one". E `e2e/release.spec.ts`: "search, choose, weather and a favorite work through the built bundle; requests are HTTPS GETs to the two documented hosts only". U `test/ui/liveComposition.test.tsx`: "search -> choose -> weather works end to end over the recorded Open-Meteo responses" | A | Passed (scope-limited) | Real provider: L Blocked. Qualifier input ("Paris, France") is new behaviour (A-Q5), see WF1-03. |
+| REQ-WF1-02 | U `acceptance.test.tsx`: "AC-001-2: city name and country are shown when available, and no country when absent" (asserts heading /Oslo.*Norway/ and exactly "Nowhereland" without country); `search.test.tsx`: "shows the country only when present" (T) | A | Passed (scope-limited) | |
+| REQ-WF1-03 | U `acceptance.test.tsx`: "AC-001-3: a city that cannot be found shows a clear message and requests no weather" (asserts M-02 text exactly and 0 weather calls); `test/ui/liveComposition.test.tsx`: "a search with no match says 'No matching city was found'"; `test/core/search.test.ts`: "gives not_found (M-02) when no candidate matches the qualifier", "filters by country, case-insensitively", "filters by region (state), case-insensitively", "matches whole values, not parts: 'Tex' does not match Texas", "splits at the FIRST comma only" (T); `search.test.tsx`: "a qualifier that matches nothing shows the not-found message (M-02)" (T) | A (acceptance), T (qualifier rules) | Passed (scope-limited) | Qualifier rules (A-Q5) rest on titles. Spelling tolerance / diacritics (Q5 sub-question 11.4) has no approved rule. |
+| REQ-WF1-04 | U `acceptance.test.tsx`: "AC-001-4 / AC-P-01: empty or whitespace-only submit (%s) prompts for a city and makes zero provider calls" (3 inputs; asserts "Please enter a city name." and 0 geocoding, current and forecast calls); `search.test.ts`: "rejects empty/whitespace %j with zero port calls" (T); E `release.spec.ts`: "over-long input is refused with its own message and sends no request (C2)" (asserts the over-long text, no "City not found", no external request; read) | A | Passed (scope-limited) | |
+| REQ-WF1-05 | See the detailed list below this table. | A | **Passed (scope-limited)** | **Re-evaluated: was Partly.** A Retry control for a failed search now exists and is asserted in unit and browser tests. Limits: no test uses a real provider; timeout kind has no Retry test; HTTP 429 as the rate-limit signal is an assumption (provider-verification.md item 2; T-75 Not run). |
+| REQ-WF2-01 | U `acceptance.test.tsx`: "AC-002-1 / AC-002-5: permission already granted: location is detected at launch and its weather is shown" (asserts 1 position call, heading "Current location", values, 3 rows); E `release.spec.ts`: "weather shows without a named place, only the forecast host is called, nothing is favoritable or stored" (stubbed geolocation); E `browserApis.spec.ts`: "geolocation > permission granted > weather shows on open, and Use my location asks again and refreshes the same way" (T) | A, A-p | Passed (scope-limited) | Geolocation is stubbed by Playwright. Real device prompt/behaviour: Not run (T-70, T-73). |
+| REQ-WF2-02 | U `acceptance.test.tsx`: "AC-002-2: permission not yet granted: the app asks for the position when it opens, which is what shows the browser prompt" (0 calls before `start()`, 1 after, then a second call on clicking the control); U `test/ui/location.test.tsx`: "app open with permission %s asks for the position without any click and shows the weather (REQ-WF2-01, REQ-WF2-02)" for granted/prompt/unknown (read); U `appController.test.ts` launch describe incl. "a prompt left unanswered keeps the waiting state" (T); E `release.spec.ts`: "app open asks the browser once, with no browser timeout; an unanswered prompt shows the waiting text and the search-instead cue, never a timeout" (A-p) | A | Passed (scope-limited) | The real browser permission prompt is not driven: Not run (T-73). |
+| REQ-WF2-03 | U `acceptance.test.tsx`: "AC-002-3 / EC-007: permission denied: message shown and city search still works" (asserts "Location access is turned off for this site", then an Oslo search shows its heading); `location.test.tsx`: "app open with permission denied makes no request, shows the denied text with the settings hint and no weather" (asserts 0 position calls, no "Current location" heading, DENIED and DENIED_HINT text, search input enabled), "a denial the platform does not report as denied shows the denied text without the settings hint"; E `browserApis.spec.ts`: "refused and the Permissions API says denied: ..." (A-p) | A | Passed (scope-limited) | Denied texts M-07/M-08. Re-prompt / re-enable (Q11 sub-question) has no approved rule. |
+| REQ-WF2-04 | U `acceptance.test.tsx`: "AC-002-4 / EC-008: location %s: helpful message and city search still works" (timeout and position_unavailable come from a scripted port error; asserts the message, the input enabled and a later search works); U `test/core/locationFlow.test.ts` describe "app-owned watchdog" incl. "the two timeout texts are the approved M-10 (prompt-wait hint) and M-11 (no hint)", "prompt: an unanswered prompt never starts the watchdog...", "after the watchdog fires the call is not cancelled..." (A-p); U `appController.test.ts`: "permission granted: after locationTimeoutMs the timeout message state is set, the attempt stays open, and the launch settles" (T); E `browserApis.spec.ts`: "position unavailable...", "prompt left unanswered..." (T) | A (acceptance), A-p (watchdog) | Passed (scope-limited) | The watchdog is proved with fake timers only; no browser test lets the 10 s watchdog fire (checked by grep of `e2e/`, Section 7). 10 s is an architecture proposal; Q10 is open. |
+| REQ-WF2-05 | U `acceptance.test.tsx` AC-002-1 (heading "Current location"); E `release.spec.ts` granted test (heading "Current location", 3 forecast items) (A-p) | A | Passed (scope-limited) | Q12 says "place name if resolvable". No reverse geocoding is wired (`src/composition.ts`), so the label is always "Current location". |
+| REQ-WF3-01 | U `acceptance.test.tsx`: "AC-003-1 / AC-007-3 / AC-P-04: temperature, humidity and condition are shown with labels and units" (asserts `dt` terms Temperature/Humidity/Condition and values 22°C, 60%, Partly cloudy); `liveComposition.test.tsx` (recorded response: 10°C, 74%, Clear) (A-p) | A | Passed (scope-limited) | L Blocked. |
+| REQ-WF3-02 | U `acceptance.test.tsx`: "AC-003-2 / AC-007-2: the condition has descriptive text and a decorative Lucide icon beside it" (asserts `svg.weather-icon` `aria-hidden="true"`, `data-icon-key` "partly-cloudy", sibling text "Partly cloudy"); `forecast.test.tsx` and `weatherIcon.test.tsx` (T); E `release.spec.ts` icons test (T) | A | Passed (scope-limited) | Icon set is Q16 (open). `scan:dist` reports 11 icons bundled, including day/night and drizzle variants, which are not user-approved (Q16 open part). |
+| REQ-WF3-03 | U `acceptance.test.tsx`: "AC-003-3: temperature follows the configured unit and the choice persists across a reload" (clicks the °F radio, asserts 71°F and a forecast row with °F, remounts over the same fake storage and asserts 71°F); `unitToggle.test.tsx`: "persists across a remount over the same storage" (A-p) | A | Passed (scope-limited) | Reload is a new app over fake storage. No browser test reloads with a stored unit. |
+| REQ-WF3-04 | U `acceptance.test.tsx`: "AC-003-4 / EC-010: incomplete data shows the available values and marks the missing one Unavailable (never 0)" (asserts `['0°C','Unavailable','Clear']` for a response without humidity); `forecast.test.tsx`: "a day with missing temperatures shows Unavailable for them" (asserts "High Unavailable, Low Unavailable") | A | Passed (scope-limited) | |
+| REQ-WF3-05 | U `acceptance.test.tsx`: "AC-003-5: current-weather failure shows an error with Retry, forecast unaffected; Retry recovers" (asserts error text, 3 forecast rows, Retry click gives 3°C/4%/Snow); `currentWeather.test.tsx`: "a failed section with no data shows its error and a retry that asks the controller to refresh", "an unreadable current section with the forecast fine shows M-25 and a retry" (asserts the exact M-25 text, no "Could not refresh", Retry present), "a failed section keeps its previous values and says they may be out of date (M-27)" (asserts old values and the exact M-27 text) | A | Passed (scope-limited) | **Evidence changed: M-25 and M-27 are asserted with exact text.** Not covered: an unreadable response for ONE section driven through the real adapter + controller + UI together (the UI tests use scripted snapshots; the adapter tests use stubbed fetch). |
+| REQ-WF4-01 | U `test/core/weatherService.test.ts`: "requests the configured days with today as the first day (Config.forecastIncludesToday = true), and stores at most forecastDays"; U `test/adapters/openMeteo/weather.test.ts`: "with today: the first day is kept and exactly `days` forecast days are requested"; U `forecast.test.tsx`: "labels only the first day 'Today' (M-30), beside its date"; `config.test.ts` default `forecastIncludesToday` true | A-p | Passed (scope-limited) | The unit chain for "today plus the next two days" is asserted at service, adapter (recorded fixture) and UI. NOT covered: the real API with includeToday true. `test/live/openMeteo.live.ts` line 54 still calls `getForecast(place, 3, false, ...)`, titled "a 3-day forecast after today". No e2e checks `forecast_days` or "Today". Q13 is still open. |
+| REQ-WF4-02 | U `test/core/format.test.ts`: "forecast dates are English whatever the device locale..." (asserts "Thu, Mar 5"); `forecast.test.tsx`: "shows three days with date, condition text, and labeled high and low" (asserts "High 20°C, Low 10°C"); `unitToggle.test.tsx`: "changes the displayed values and units everywhere" | A-p | Passed (scope-limited) | Date format "Thu, Mar 5" is the implemented choice; the format is an open item (Q13). Location-local day boundary: not tested near midnight. |
+| REQ-WF4-03 | U `acceptance.test.tsx`: "AC-004-1 / AC-004-2 / AC-004-3: three days, each with date, high and low, condition text and an icon" (asserts 3 rows, date text, "High 20°C, Low 10°C", Sunny/Rain/Cloudy, an `aria-hidden` icon per row with keys clear/rain/cloudy) | A | Passed (scope-limited) | Q16 open. |
+| REQ-WF4-04 | U `acceptance.test.tsx`: "AC-004-4 / EC-011: fewer than three days: available days shown, the rest marked unavailable" (asserts 3 rows, row 1 "Sunny", rows 2 and 3 exactly "Unavailable"); `forecast.test.tsx` "two days supplied...", "no days supplied..." (T) | A | Passed (scope-limited) | |
+| REQ-WF4-05 | U `acceptance.test.tsx`: "AC-004-5: forecast failure shows an error and a retry option; current weather stays visible; Retry recovers"; `forecast.test.tsx`: "error with no data shows the message and a retry, and no rows" (Retry click calls `refresh` once), "an unreadable forecast section with the current weather fine shows M-26 and a retry" (exact M-26 text), "an unreadable forecast kept from earlier shows M-27 with M-26", "a whole failure shows each section the kind message (M-06 for an unreadable response), not M-26", "a network failure of one section shows the network message (M-04)" (all read) | A | Passed (scope-limited) | **Evidence changed (M-04, M-06, M-26, M-27).** Same real-stack limit as WF3-05. |
+| REQ-WF5-01 | U `acceptance.test.tsx`: "AC-005-1 / AC-005-2 / AC-005-5: Refresh is offered with weather, requests both sections for the same place, and updates values and time" (asserts no Refresh before weather, then new 30°C and an unavailable third row, 2 calls per section for the same key, time updated); `refresh.test.tsx`: "is hidden until weather is displayed" (T) | A | Passed (scope-limited) | No browser test clicks Refresh (Section 7). |
+| REQ-WF5-02 | U `acceptance.test.tsx` AC-005-1 (same key requested again); `weather.test.ts`: "sends both weather requests with cache 'no-store'..." (asserts `init.cache`), `geocoding.test.ts`: "sends the request with cache 'no-store'..." and `liveComposition.test.tsx` (asserts `cache` 'no-store' on all 3 requests) (A-p) | A, A-p | Passed (scope-limited) | NOT covered: a browser-level test of the cache mode (grep of `e2e/` finds no `no-store` assertion; the header-allowlist test at `release.spec.ts:509` only tolerates `cache-control`/`pragma`) and a "changed payload shows after refresh" test in a real browser (T-64). Real HTTP cache behaviour with the live provider: Not run. |
+| REQ-WF5-03 | U `acceptance.test.tsx`: "AC-005-3 / AC-P-03 / EC-012: five activations during one refresh leave exactly one outstanding request per section" (asserts 2 calls per section, 1 pending, button disabled, then enabled again); U `appController.test.ts`: "a refresh while a search is pending is ignored (N1, A-Q19)" (asserts no extra weather calls while the search is held, then exactly one load for the new city); "a refresh works again once a search ends without a new city (error or choice)" (asserts +1 call and the old location kept); `refresh.test.tsx`: "is unavailable while a search is waiting for its answer (N1)" (asserts disabled); other single-flight titles (T) | A | Passed (scope-limited) | **Evidence changed: refresh ignored while a search is pending.** Not in a real browser. |
+| REQ-WF5-04 | U `acceptance.test.tsx`: "AC-005-4 / AC-P-02 / EC-013: a failed refresh keeps the previous values and the previous time next to the error"; `refresh.test.tsx`: "a failed refresh keeps the values and the previous time visible with the error (AC-P-02)" (asserts old 22°C, 3 forecast items, time unchanged, Refresh enabled, M-27 shown exactly once above the block); U `appController.test.ts`: "an old-city refresh that resolves after the new city loaded never overwrites it (DR-18)" (asserts the snapshot and selection stay on B with B's data) | A | Passed (scope-limited) | In-session retention only (Q21). The DR-18 "refresh result applied only if selection unchanged" rule is asserted for the search-superseded case; the same-city-key edge in `isCurrent` (`selected.key === shownKey`) has no named test. |
+| REQ-WF5-05 | U `acceptance.test.tsx`: "partial refresh failure: the failed section keeps its old data and old time; the other section updates" (asserts two labelled update lines with different times); `refresh.test.tsx`: "equal section times: one line 'Updated <time>' (M-31)", "different section times: two labelled lines..." (T); "a successful refresh updates the values and the time" (read) | A (partial), T | Passed (scope-limited) | Time format is an open sub-question (11.4). |
+| REQ-WF6-01 | U `favoritesService.test.ts`: "rejects a device location and writes nothing" (T); U `favorites.test.tsx`: "an unresolved device location cannot be favorited: a hint replaces the add control" (T); E `release.spec.ts` granted test (no "Add to favorites", nothing stored) (A-p); `acceptance.test.tsx`: "AC-006-1 / AC-006-2: Add saves the shown city and the favorites list shows it" (asserts the list button "Oslo, Viken, Norway Showing") | A, A-p | Passed (scope-limited) | Whether a device location should be favoritable is open (Q12/Q23); the tests verify the current "no" behaviour only. |
+| REQ-WF6-02 | U `acceptance.test.tsx` AC-006-1 / AC-006-2 (above) and AC-006-4 (list has exactly 1 item after two adds); `favoritesService.test.ts`: "starts empty and adds in insertion order" (T) | A | Passed (scope-limited) | |
+| REQ-WF6-03 | U `acceptance.test.tsx`: "AC-006-3: selecting a favorite shows its current weather and forecast, without a name search" (asserts heading, 1°C for the favorite, 3 rows, 0 geocoding calls); `appController.test.ts`: "selecting a favorite loads by stored coordinates without calling search" (T) | A | Passed (scope-limited) | |
+| REQ-WF6-04 | U `acceptance.test.tsx`: "AC-006-4 / EC-014: an existing favorite cannot be added again" (asserts no Add button, 1 stored item, 1 list item); `favoritesService.test.ts`: "rejects duplicates by key, whatever the coordinates" (T); `test/core/identity.test.ts`, `favoritesApi.test.ts` (T) | A | Passed (scope-limited) | The identity rule (`src/core/favorites/identity.ts`) rests on identity-test titles; I did not read them. |
+| REQ-WF6-05 | U `acceptance.test.tsx`: "AC-006-5 / EC-015: removing a favorite removes it; removing the displayed one keeps the weather on screen" (asserts the empty-state text, heading and 22°C stay, Add reappears); `favoritesService.test.ts`: "removes by key and reports unknown keys" (T) | A | Passed (scope-limited) | No browser test for remove. |
+| REQ-WF6-06 | E `e2e/browserApis.spec.ts`: "localStorage > a favorite is kept across a reload, and only the favorites record is stored", the five "unreadable saved favorites" variants (exact M-16 text), "localStorage missing..." and "writes failing..." (A-p); U `acceptance.test.tsx`: "AC-006-6 / AC-P-05: a favorite added in one session is present after a reload (new app over the same storage)" (asserts the favorite's button in the second app); `favoritesService.test.ts`: "discards a %s record, starts empty, raises the corruption flag and does not crash (REQ-WF6-06)" (T) | A, A-p | Passed (scope-limited) | Persistence is proved with a real browser reload on 5 engines. Real-device persistence, private-browsing behaviour: Not run (T-70). |
+| REQ-WF7-01 | E `e2e/accessibility.spec.ts`: "axe, release build, 320px / 1280px >" 7 state tests each; `release.spec.ts`: "axe finds no WCAG 2.1 A/AA violation, colour contrast included, with weather, icons and the footer shown (320 and 1280 px)"; `test/ui/accessibility.test.tsx` | T | Passed (scope-limited) | Axe runs in waiting, refused, searching, pick-list, not-found, service-error, too-long, weather, favorites and storage-unavailable states; NOT in a Retry-offered state (the new Retry button is not under axe, by title review) nor a refresh-failure state. "Clear, organized, easy to read" is subjective; Q26 is open. Screen reader, 200 % zoom: Not run (T-71, T-72). |
+| REQ-WF7-02 | U `acceptance.test.tsx` AC-003-2 (decorative icon and text, read above); E `release.spec.ts` icons test (T) | A | Passed (scope-limited) | |
+| REQ-WF7-03 | U `acceptance.test.tsx` AC-003-1 (labels via `dt`, values, read above); `forecast.test.tsx`: "shows three days with date, condition text, and labeled high and low" (read via the AC-004 test) | A | Passed (scope-limited) | |
+| REQ-WF7-04 | E `e2e/layout.spec.ts`: "release build layout (320, 767, 768, 1023, 1024, 1280 px) > <w>px: ..." (6 widths) and the resize test; E `release.spec.ts`: "layout: the credit beside the data stays inside its panel..."; U `test/ui/styles.test.ts` | T | Passed (scope-limited) | Titles only. Q2 (supported browsers/breakpoints) is open. Real iOS, Android, Edge, Safari: Not run (T-70). |
+| REQ-WF7-05 | U `acceptance.test.tsx`: "AC-007-5: a loading indicator is shown while data loads, then replaced..." (T); `forecast.test.tsx`: "shows a loading state before data arrives" (asserts "Loading..." and 0 rows); `currentWeather.test.tsx`: "shows a loading state when no data has arrived yet" (asserts "Loading..." and no `dl`) | A (loading part), T | Passed (scope-limited) | No performance target exists (Q29). Not measured. |
+| REQ-WF7-06 | U `acceptance.test.tsx`: "AC-007-1 / AC-007-6 (structure only)..."; `focus.test.tsx`; E `accessibility.spec.ts`: "keyboard > a keyboard-only search..." | T | Passed (scope-limited) | "Clear" and "consistent" remain subjective; manual checks Not run. |
+| REQ-X-01 | U `acceptance.test.tsx`: "slow weather for city A that arrives after city B was selected is discarded" (asserts A's late 99 is delivered but the page shows Beta with 20°C and no "99"); U `appController.test.ts`: "an old-city refresh that resolves after the new city loaded never overwrites it (DR-18)"; "stale results are discarded (selection token)" describe (T) | A | Passed (scope-limited) | Tests run through the legacy staging path (Section 7). |
+| REQ-X-02 | U `acceptance.test.tsx` AC-005-1 (asserts both sections request the same place key); `appController.test.ts`: "a refresh is cancelled when the selection changes" (T) | A | Passed (scope-limited) | |
+| REQ-X-03 | U `test/ui/unitToggle.test.tsx`: "changes the displayed values and units everywhere" (22°C -> 71°F and forecast "High 20°C, Low 10°C" -> "High 68°F, Low 50°F"); U `acceptance.test.tsx` AC-003-3 (read) | A-p, A | Passed (scope-limited) | Fake ports; no browser test. |
 
-| File | Tests | Task(s) |
-|------|-------|---------|
-| `test/smoke.test.ts` | 1 | 003 |
-| `test/core/errors.test.ts` | 18 | 004 (and 009 message lookup) |
-| `test/core/domain.test.ts` | 3 | 005 |
-| `test/core/ports.test.ts` | 9 | 006 |
-| `test/core/config.test.ts` | 36 | 007 (incl. L4) |
-| `test/core/identity.test.ts` | 13 | 008 (incl. L7) |
-| `test/core/format.test.ts` | 20 | 009 |
-| `test/core/conditions.test.ts` | 7 | 010 |
-| `test/core/forecast.test.ts` | 12 | 011 |
-| `test/fakes/fakes.test.ts` | 14 | 012 |
-| `test/core/search.test.ts` | 18 | 013 |
-| `test/core/weatherService.test.ts` | 19 | 014 |
-| `test/core/locationFlow.test.ts` | 22 | 015 (incl. M1) |
-| `test/core/favoritesService.test.ts` | 23 | 016 (incl. L4) |
-| `test/core/settings.test.ts` | 10 | 017 |
-| `test/core/store.test.ts` | 13 | 018 (incl. L1) |
-| `test/core/appController.test.ts` | 41 | 019 (incl. M1, M2, M3, L1, L6) |
-| `test/adapters/localStorageStore.test.ts` | 6 | 020 |
-| `test/adapters/geolocation.test.ts` | 19 | 021 |
-| **Total** | **304** | |
+**REQ-WF1-05 detail (the assertions I read).**
+1. U `test/ui/search.test.tsx`: "REQ-WF1-05: a failed search offers Retry (M-34) that re-submits the last text and succeeds". It types "  Oslo ", scripts a service error, asserts the service-unavailable text, asserts one Retry button inside the search panel's parent, changes the field to "something else", scripts success, clicks Retry, and asserts `callCount` 2, `calls[1].args[0]` is `'Oslo'` (the trimmed last text, not the edited field), the weather heading appears and the Retry button is gone. This asserts the Retry behaviour directly.
+2. U same file: "REQ-WF1-05: Retry is offered after a %s failure" asserts the Retry button for service, network, rate limited and invalid response (4 of the 5 kinds in `RETRYABLE_SEARCH_ERRORS`; the `timeout` kind has no test).
+3. U same file: "REQ-WF1-05: no Retry for not found, empty or over-long input (the text must change)" asserts no Retry after not-found and after whitespace-only input. **The over-long case in the title is not asserted in the body.**
+4. U same file: "REQ-WF1-05: Retry is single-flight while its search runs" holds the search, clicks Retry twice, asserts `callCount` 2 (initial + one).
+5. U same file: "REQ-WF1-05: Retry is keyboard operable and moves focus into the search form" focuses Retry, presses Enter, asserts `callCount` 2 and the weather heading. **The "moves focus into the search form" part of the title is not asserted** (no `document.activeElement` check); `SearchPanel.tsx` does call `inputRef.current?.focus()` in `onRetry`.
+6. E `e2e/release.spec.ts`: "REQ-WF1-05: when the provider fails once, Retry re-submits the last search text and the weather appears" (all 5 engines): the first geocoding call gets HTTP 503, asserts the unavailable text, edits the field to "something else", focuses Retry, presses Enter, asserts the pick-list group is visible, the error text is gone, and the requested names are exactly `['Berlin', 'Berlin']`.
+7. E same file: "a provider that cannot be reached (network error)..." asserts the exact M-04 text and the input enabled; "an unreadable search response shows the approved M-06 text" asserts the exact M-06 text. U `test/core/search.test.ts` asserts the M-04 and M-06 kinds and texts at service level. U `test/adapters/openMeteo/weather.test.ts` ("getCurrent: %s is INVALID_RESPONSE (M-06)", "getForecast: %s is INVALID_RESPONSE (M-06)", "HTTP 429 is RATE_LIMITED...", "a network failure is NETWORK...", "no automatic retry: one failed request is one fetch call") asserts the adapter mappings and that the error body never escapes (read).
 
-### 3.2 Post-review fixes
+Count (40 IDs): 40 Passed (scope-limited), 0 Partly, 0 Unverified, 0 Failed (previous: 39 / 1 / 0 / 0).
 
-| Fix | Evidence (test title or file) | Status |
-|-----|-------------------------------|--------|
-| M1 (unresolved device location keyed with coordinates) | `appController.test.ts`: "M1: a second 'Use my location' from another place never shows the first place's data"; "M1: the unresolved device key is never written to storage"; `locationFlow.test.ts` | Unit-tested, passed |
-| M2 (failed locate does not start a selection) | `appController.test.ts`: four "M2:" tests | Unit-tested, passed |
-| M3 (refresh ignored during initial load) | `appController.test.ts`: "M3: a refresh during the initial load makes no second request" | Unit-tested, passed |
-| L1 (listener exception isolation) | `store.test.ts` (title not individually inspected); `appController.test.ts`: "an exception thrown by a subscriber is isolated..." | Unit-tested, passed |
-| L4 (config validation; favorites kept above cap) | `config.test.ts`; `favoritesService.test.ts`: "keeps every valid stored favorite when the cap is lower, and still blocks additions" | Unit-tested, passed |
-| L6 (clear earlier errors; settings-not-saved message) | `appController.test.ts`: four "L6:" tests | Unit-tested, passed |
-| L7 (escape `|` and `\` in name keys) | `identity.test.ts` (title not individually inspected) | Unit-tested, passed (not individually confirmed by title) |
+Evidence level: assertions read this session for 31 IDs (WF1-01..05, WF2-01, 02, 03, 05, WF3-01..05, WF4-03, 04, 05, WF5-01..04, WF6-01..06, WF7-02, 03, X-01, X-02); read in part this session for 3 (WF2-04 acceptance part only, WF5-05, WF7-05); read in the previous run only (A-p) for 3 (WF4-01, WF4-02, X-03; also the watchdog and no-store parts of WF2-04 and WF5-02); title only for 3 (WF7-01, WF7-04, WF7-06). Previous run: 15 read, 25 title-only. No requirement is marked fully verified: none has a real-provider, real-device or manual-check result.
 
-### 3.3 Functional requirements
-
-| Requirement / AC | Evidence | Status |
-|------------------|----------|--------|
-| FR-001, FR-002, AC-001-1 (search, show weather) | `search.test.ts`; `appController.test.ts` "one match is selected and its weather loaded". No input control or display exists. | Partial: logic only. UI Not verifiable (TASK-027). Real provider Not verifiable (TASK-022 blocked). |
-| FR-003, AC-001-2 (name and country) | Domain/search logic only; display not built. | Unverified (TASK-027, 028) |
-| FR-004, AC-001-3 (city not found) | `search.test.ts` (not found); `appController.test.ts` "not found and service errors are shown as search errors". | Partial: error state in store; message display not built |
-| FR-005, AC-001-4, AC-P-01 (empty input, zero calls) | `search.test.ts` (empty and whitespace make zero port calls, per Implementer note); `appController.test.ts` "an empty search does not cancel work in progress". | Partial: zero provider calls unit-tested; visible prompt not built |
-| FR-006, NFR-001, AC-001-5 (service down, no crash) | `search.test.ts`; `appController.test.ts` "every intent resolves when every port throws". | Partial: no crash at controller level; user-visible message not built |
-| FR-007 (TBD, OQ-007) | `search.test.ts` (Unicode, trim, ambiguity up to `searchResultLimit`, `maxInputLength`), `appController.test.ts` "several matches wait for a choice". Implemented at defaults only. | Partial; behavior TBD by user |
-| FR-008, AC-002-1, AC-002-5 (granted: detect and show) | `appController.test.ts` "permission granted: auto-detects and shows weather"; `locationFlow.test.ts`. | Partial: logic with fakes. Real Geolocation untested |
-| FR-009, AC-002-2 (ask before access) | `appController.test.ts` it.each prompt/denied/unsupported (no `getCurrentPosition` on launch) and "prompt state: the user action is what calls getCurrentPosition". | Partial: controller and flow logic. Prompt UI and real browser prompt not verified |
-| FR-010, AC-002-3 (denied) | `locationFlow.test.ts`; `geolocation.test.ts` error-code mapping; `appController.test.ts` "a failure keeps city search usable...". | Partial: city search availability in UI not verifiable |
-| FR-011, AC-002-4 (fail or timeout) | `locationFlow.test.ts`, `geolocation.test.ts` (timeout, unavailable, unsupported). | Partial (stubs only) |
-| FR-012 (TBD) | `config.test.ts` default 10000 ms; `locationFlow.test.ts` timeout. Real-browser timeout behavior has a known limitation (see Section 7). | Partial |
-| FR-013, FR-039 (TBD, OQ-009) | `appController.test.ts` launch policy tests; device-location favorite tests ("device location without reverse cannot be favorited...", "...resolved to a named place saves that place..."); `favoritesService.test.ts` device-location rejection. Real reverse geocoding does not exist (TASK-024 blocked). | Partial; reverse path tested with fakes only |
-| FR-014, AC-003-1 (current weather) | `weatherService.test.ts` ("both sections succeed"). Display not built. | Partial (TASK-028) |
-| FR-015, FR-022, FR-041, AC-003-2, AC-004-3, AC-007-2 (icons) | `conditions.test.ts` (icon key and label for every `ConditionCode`, UNKNOWN fallback). No icon assets or component. | Partial: mapping only. Icons Not verifiable (TASK-035 blocked) |
-| FR-016, AC-003-3 (unit) | `format.test.ts` (conversion, symbols); `settings.test.ts`; `appController.test.ts` "the temperature unit is stored and persisted". Toggle UI not built. | Partial (TASK-033) |
-| FR-017 (TBD) | `settings.test.ts`, `config.test.ts` defaults. | Partial; default only |
-| FR-018, AC-003-4 (incomplete data) | `weatherService.test.ts` "missing provider fields stay undefined"; `format.test.ts` ("Unavailable" token). Rendering not built. | Partial |
-| FR-019, AC-003-5 (current failure) | `weatherService.test.ts` "current fails...", "first load failing leaves an error section...". Retry control not built. | Partial |
-| FR-020, FR-021, AC-004-1, AC-004-2 (3-day forecast) | `weatherService.test.ts` ("requests configured days and includeToday..."), `forecast.test.ts`, `format.test.ts`. Display not built. | Partial (TASK-029) |
-| FR-023, AC-004-4 (fewer than 3 days) | `forecast.test.ts` (0, 1, 2, 3, more than 3); `weatherService.test.ts` "exposes forecast slots padded...". | Partial (rendering not built) |
-| FR-024, AC-004-5 (forecast failure, retry) | `weatherService.test.ts` "forecast fails...". Retry option not built. | Partial |
-| FR-025 (TBD) | `config.test.ts` defaults (`forecastDays` 3, `forecastIncludesToday` false); `weatherService.test.ts` passes them. Time-zone basis depends on provider (TASK-001). | Partial; defaults only |
-| FR-026, AC-005-1 (refresh control) | `appController.test.ts` refresh tests ("refresh with nothing displayed does nothing"). Control not built. | Partial |
-| FR-027, AC-005-2 (refresh updates both) | `weatherService.test.ts` "both sections succeed", "when the sections finish at different times, both get the older time". | Partial |
-| FR-028, AC-005-3, AC-P-03 (no duplicate requests) | `weatherService.test.ts` "five rapid refreshes produce exactly one provider call per section (AC-P-03)"; `appController.test.ts` "rapid refreshes produce one provider call per section" and M3. Control-disabled behavior in a UI not built. | Partial: service/controller level passed |
-| FR-029, AC-005-4, AC-P-02 (failed refresh keeps data) | `weatherService.test.ts` "both fail: previous data and times are kept (AC-P-02)"; `appController.test.ts` "a failed refresh keeps the displayed values"; `store.test.ts`. | Partial: state level passed; visible message not built |
-| FR-030, AC-005-5 (last updated) | `forecast.test.ts` (older of two section times, undefined if one never succeeded); `weatherService.test.ts`. Display not built. | Partial |
-| FR-031 (TBD) | `weatherService.test.ts` "times out at weatherTimeoutMs (10 s)..." with fake timers; no automatic retry. Wall-clock timeout not exercised. | Partial |
-| FR-032, AC-006-1 (add favorite) | `favoritesService.test.ts`; `appController.test.ts` "add, duplicate and remove...". Control not built. | Partial (TASK-031) |
-| FR-033, AC-006-2 (list) | `favoritesService.test.ts` (insertion order); store holds favorites. List not rendered. | Partial |
-| FR-034, AC-006-3 (select favorite) | `appController.test.ts` "selecting a favorite loads by stored coordinates without calling search". | Partial |
-| FR-035, AC-006-4 (no duplicates) | `favoritesService.test.ts` "rejects duplicates by key..."; `identity.test.ts`. Duplicate identity rule is the TBD default (FR-038). | Partial |
-| FR-036, AC-006-5 (remove) | `favoritesService.test.ts` "removes by key..."; `appController.test.ts` (removing the displayed favorite keeps weather). | Partial |
-| FR-037, AC-006-6, AC-P-05 (persistence) | `favoritesService.test.ts` "a fresh service over the same store restores the list" against an in-memory fake; `localStorageStore.test.ts` against a stub. **No real browser localStorage reload was tested.** | Partial; real persistence Unverified |
-| FR-038 (TBD) | `config.test.ts`, `favoritesService.test.ts` (cap, ordering), `identity.test.ts`. | Partial; defaults only |
-| FR-040, FR-043, FR-044, FR-045, AC-007-1, 4, 5, 6 (layout, responsive, loading states, navigation) | No UI exists. `store.test.ts` covers state only. | **Not verifiable** (TASK-026 to 034) |
-| FR-042, AC-007-3, AC-P-04 (labels and units) | `format.test.ts` covers formatting functions (units, "%", degree symbol). Labels in a rendered UI do not exist. | Partial: formatting only |
-
-### 3.4 Non-functional requirements
-
-| NFR | Evidence | Status |
-|-----|----------|--------|
-| NFR-001 Reliability | `appController.test.ts` "every intent resolves when every port throws"; `errors.test.ts`; adapters tested to return typed errors, not throw. No UI behavior. | Partial (core only) |
-| NFR-002 Responsive, NFR-007 Browser support | None | **Not verified** (TASK-026, 040) |
-| NFR-003 Accessibility | None | **Not verified** (TASK-039) |
-| NFR-004 Performance (TBD) | 10 s timeout tested with fake timers only. No latency or loading-indicator timing. | **Not verified** (TASK-034, 042) |
-| NFR-005 Privacy | `locationFlow.test.ts` (no storage dependency, source-scan test), `favoritesService.test.ts` (no raw device coordinates stored), `appController.test.ts` M1 (unresolved device key never stored). Real browser storage not inspected; no network inspection. | Partial |
-| NFR-006 Security | `errors.test.ts` (messages contain no interpolated raw input). No bundle secret scan, no rendering-as-text check, no HTTPS URL check (no provider adapter). | Partial; mostly Unverified (TASK-041) |
-| NFR-008 Localization | `format.test.ts` (device-locale date formatting, message table). Single locale only. | Partial |
+Not requirement IDs but relevant (privacy and security evidence; Q28 and the A-Q28 footer):
+- M-24 footer privacy disclosure (read): `test/ui/footer.test.tsx` "the footer shows the approved text exactly, as one visible paragraph" (the test constant `PRIVACY`, which I compared with the Option A text in `message-wording.md` and found identical, equals the rendered text, appears once, is a visible `P`), "it states what is sent, the 90-day log retention and that nothing else is collected", "it is shown even when no credit is configured", "it is not shown on the not-set-up page, which sends nothing". `messages.test.ts` also asserts the `ui.footer.privacy` text.
+- **Location privacy hint (changed):** "the 'Use my location' button does not repeat the whole disclosure on every focus (no aria-describedby)" (`footer.test.tsx`) and `location.test.tsx` "is prominent; the privacy disclosure (M-24) stays in the footer and is not read on every focus" (both assert `aria-describedby` is `null` and the text occurs once, in the footer). These tests establish that the disclosure is in the footer only; they do not test when the user sees it relative to the launch-time location prompt (REQ-WF2-02 asks at open).
+- Coordinate rounding: `footer.test.tsx` "the approved 'two decimal places' wording matches Config.coordinateDecimals" asserts the wording contains "rounded to two decimal places" and `createConfig().coordinateDecimals` is 2; E `release.spec.ts` granted test asserts coordinates leave the page rounded (A-p). This keeps the footer wording and the setting in step, not the adapter's rounding by itself (`weather.test.ts` "uses 2 decimals (Config.coordinateDecimals)", T).
+- Device coordinates not stored: `locationFlow.test.ts` "the flow module has no storage dependency"; `appController.test.ts` "M1: the unresolved device key and its coordinates are never written to storage"; E granted test asserts empty `localStorage` and cookies (A-p).
+- Request headers: E `release.spec.ts:509` "requests to the weather service carry no Referer ... and no custom headers" (asserts no referer; only default and `cache-control`/`pragma` headers; read). With the provider intercepted it does not show the real provider's CORS answer.
+- CSP and build gates: E `release.spec.ts` "the CSP is enforced..." (T); U `test/security/scanDistRules.test.ts` (T). Deployed-origin HTTPS/CSP check: Not run (HOST undecided).
+- Message wording: the tests cite 30 of 45 catalogue IDs (M-01..12, 15, 16, 18..27, 30..34, 44). Compared to the catalogue text this session or previously: M-02, M-04, M-05, M-06, M-10, M-11, M-16, M-24, M-25, M-26, M-27, M-34 (12). The other catalogue entries were not compared one by one: Unverified. The unapproved `ui.dataFrom` no longer appears anywhere in `src`, `test` or `e2e`.
 
 ## 4. Commands Executed and Results
 
-All commands run from `<project root>`.
+All commands run from `C:\Users\JayasriAp\Documents\claude-project`, one at a time, in this order, nothing in parallel. Exit status is the shell exit code.
 
-1. `npm run typecheck` (runs `tsc --noEmit`). Purpose: strict-mode type check of `src/` and `test/` (as configured in `tsconfig.json`). Exit code 0. Output: only the npm banner; no diagnostics. **Passed.**
-2. `npm test` (runs `vitest run`). Purpose: execute the unit tests. Exit code 0. Output summary: `Test Files 19 passed (19)`, `Tests 304 passed (304)`, duration about 687 ms. **Passed.**
-3. `npx vitest run --reporter=json --outputFile=<temp>/vitest-report.json`, then a short Node script reading that report. Purpose: obtain per-file test counts. Exit code 0 for the test run. Report: 304 total, 304 passed, 0 failed, 0 pending, 0 todo. Per-file counts are in Section 3.1. (This was a second full run of the same suite; it matched run 1. The report and script were written to the user temp directory, outside the repository.) **Passed.**
-4. `npm run lint` (runs `eslint .`). Purpose: static analysis with the project's ESLint flat config (typescript-eslint, react-hooks). Exit code 0, no output beyond the banner. **Passed.** Whether `dist/` and `node_modules` are excluded by `eslint.config.js` was not examined.
-5. `npm run build` (runs `tsc --noEmit && vite build`). Purpose: type check and production bundle. Exit code 0. Output: `15 modules transformed`; `dist/index.html` 0.39 kB, `dist/assets/index-CdyfEuBg.css` 0.05 kB, `dist/assets/index-CLXUI2KP.js` 219.45 kB (68.56 kB gzip); `built in 126ms`. **Passed.** The bundle contains the React runtime and an empty `<main />`; no application UI.
+| # | Command | Purpose | Exit | Observed result |
+|---|---|---|---|---|
+| 0 | Pre-check (not a repo check): `nslookup api.open-meteo.com`; `curl -sS -m 15 .../v1/forecast?...` | Is the network usable? | nslookup: timeouts; curl 200 | `nslookup`: `DNS request timed out` against server `UnKnown` (103.247.36.36). The curl to `api.open-meteo.com` returned HTTP 200. |
+| 1 | `npm test` (`vitest run`), 15:16 | Unit, component, scenario, contract and security suites, no network | 0 | `Test Files 54 passed (54)`, `Tests 1439 passed (1439)`, duration 11.47 s. One stderr line: `Not implemented: HTMLCanvasElement's getContext() method` (jsdom limitation; no test failed). |
+| 2 | `npm run typecheck` (`tsc --noEmit`) | Type check | 0 | No diagnostics. |
+| 3 | `npm run lint` (`eslint .`) | Lint | 0 | No diagnostics. |
+| 4 | `npm run build:release` | Type check, production build, `scan:dist` | 0 | 1984 modules transformed. `dist/index.html` 0.88 kB; CSS 3.21 kB (1.15 kB gzip); JS 285.15 kB (87.38 kB gzip). `scan:dist: scanned 4 file(s), not scanned 0, unreadable 0, JavaScript 86350 bytes gzipped, icons bundled 11 (circle-question-mark, cloud, cloud-drizzle, cloud-fog, cloud-lightning, cloud-moon, cloud-rain, cloud-snow, cloud-sun, moon, sun) ...; no findings`. |
+| 5-pre | Network check at 15:16:56: `curl` to the geocoding host, `curl` to `api.open-meteo.com/v1/forecast`, `node -e "dns.promises.lookup('api.open-meteo.com')"` | Decide whether to run smoke:live | geocoding curl 6; forecast curl 0 | Geocoding host: `curl: (6) Could not resolve host: geocoding-api.open-meteo.com`. Forecast host: HTTP 200. Node DNS lookup of `api.open-meteo.com`: resolved (157.90.83.168). So DNS worked for one host and failed for the other in the same minute. |
+| 5a | `npm run smoke:live` (`vitest run --config vitest.live.config.ts --reporter=verbose --disableConsoleIntercept`), attempt 1, 15:17:16 | 3 real HTTPS requests to Open-Meteo through the real adapters | **1 (failed)** | `Test Files 1 failed (1)`, `Tests 3 failed (3)`, 7.38 s. Geocoding test, 7097 ms: `AssertionError: {"ok":false,"error":{"kind":"network","messageKey":"error.network"}}: expected false to be true`. The two weather tests failed with "the geocoding step must pass first: expected undefined to be defined" (never sent a request). |
+| 5b | Diagnosis (not a repo check), 15:17:45: Node `dns.promises.lookup` for the geocoding host, `api.open-meteo.com`, `example.com`; curl to the two Open-Meteo URLs and `example.com` | Find out whether the failure is the adapter or the network | curl: 200, 200, then 6 | Node: `geocoding-api.open-meteo.com` -> `EAI_AGAIN`; `api.open-meteo.com` -> 157.90.83.168; `example.com` -> 172.66.147.243. curl: geocoding 200, forecast 200, `example.com` `Could not resolve host` (exit 6). Fact: name resolution succeeds for some host/tool combinations and fails for others from one try to the next. Suspected, not proved: the smoke geocoding failure is the same `EAI_AGAIN` (the adapter reports only `network`). |
+| 5c | `npm run smoke:live`, attempt 2, 15:18:10 (I re-ran it once because DNS looked intermittent; the first result was not discarded) | Same as 5a | **1 (failed)** | Same result: `Tests 3 failed (3)`, geocoding `{"kind":"network"}` after 7098 ms, duration 7.35 s. |
+| 6 | `npm run test:browser` (`playwright test`), 15:18:26, run alone | Real-browser tests on a release build (rebuilds `dist/` via `npm run build:release`, then `vite preview` on port 4174 under `/weather-e2e/`) | 0 | `Running 270 tests using 1 worker`, `270 passed (5.6m)`. Per project: 54 passed in each of release-chromium, release-firefox, release-webkit, release-mobile-chromium, release-mobile-webkit. Per spec (per project): accessibility 15, layout 7, browserApis 14, release 18. No failed, flaky or skipped tests (grep of the log for flaky/retry/skipped/failed returns 0 lines; `retries: 0`). |
 
-Two earlier attempts to summarize the JSON report failed with a shell-quoting syntax error in my own helper script (not a project failure); the test run itself had exited 0 and the helper was rewritten.
-
-Other `package.json` scripts: `dev` (`vite`) was **Not run**: it starts a long-running dev server and, with only a placeholder `main.tsx`, would show an empty page. No `preview`, coverage, or e2e script exists, and no coverage provider (such as `@vitest/coverage-v8`) is installed, so **no code coverage figure was measured**.
+Notes:
+- What I re-ran: only `smoke:live` (attempt 2, 5c). Nothing else was re-run; no result was discarded. No intermittent failure occurred in commands 1, 2, 3, 4 or 6.
+- The `smoke:live` result cannot be called a pass or a clean environment block: the network was partly working. Both attempts failed at the geocoding step; the weather requests were never sent, so nothing was learned about `api.open-meteo.com` responses. Whether `smoke:live` would pass on a stable network is Unverified. Even then it does not cover "today plus two days" (it calls `getForecast(place, 3, false, ...)`; Section 5, O-1) and does not check `is_day`, the cache mode or the rate-limit path.
+- Command 6 builds `dist/` itself, so `dist/` now holds that build (base `/weather-e2e/`), same sources as command 4.
 
 ## 5. Failures and Defects Observed
 
-No command failed. No test failed or was skipped. No warnings were printed by any command.
+| ID | Observation (fact) | Affects | Suspected cause / impact (not verified) |
+|---|---|---|---|
+| F-1 | `npm run smoke:live` exits 1 (twice). The adapter returned `{kind: "network"}` for the geocoding request after about 7.1 s. Separate diagnostics showed intermittent DNS failures (`EAI_AGAIN` in Node for the geocoding host; curl exit 6 for several hosts at different times). | Live-API evidence for every data requirement; adapter behaviour with `cache: 'no-store'` against the real hosts, and whether the `no-store` request headers are accepted by the real provider's CORS policy in Firefox/WebKit | Environment (DNS/network) failure on this machine. Not a code defect as far as observed. Needs a re-run on a working network. |
+| O-1 | `test/live/openMeteo.live.ts` is unchanged: it calls `getForecast(place, 3, false, ...)`, titled "a 3-day forecast after today". It does not use the configured `forecastIncludesToday: true`, so even on a working network it would not check "today plus two days". It also does not check `is_day`, `cache`, or the rate-limit path. | REQ-WF4-01 (live), WF3-02 day/night | Smoke script predates the approved setting. Changing it needs the user's confirmation (impl-plan Section 6 item 7). |
+| O-2 | `cache: 'no-store'` is present in `src/adapters/openMeteo/http.ts` and asserted at adapter and composition level. There is no browser-level assertion of the cache mode, and `release.spec.ts:525-527` records that Firefox and WebKit add `Cache-Control` and `Pragma` themselves and that "whether the real provider answers those without a preflight is checked by the live run". The live run does not exist (F-1) and does not check it either. | REQ-WF5-02 | The CORS/preflight behaviour of `cache:'no-store'` against the real provider on Firefox/WebKit is **Unverified**. Playwright intercepts the provider, so no real OPTIONS exchange happens. |
+| O-3 | **Legacy ports are still the working path.** `src/composition.ts` types and wires `LegacyGeocodingProvider`, `LegacyWeatherProvider` and `LegacyLocationService` (lines 28, 41-43, 63, 69, 86-88); the core services and both Open-Meteo adapters implement or consume them. `grep "implements (WeatherProvider\|FavoritesApi\|LocationService\|GeocodingProvider)" src` returns nothing: no class implements the approved ports. The weather adapter still makes two requests (current + daily) instead of the approved single `get`. | REQ-X-01, all data requirements | Phase 3 (adapters, T-30..T-32) and the Phase 2 migration (T-20..T-32 approved ports) are not complete. The passing suites verify the legacy path. `test/contract/` exists (untracked: `fakes.contract.test.ts`, `portContracts.ts`); I did not read it. |
+| O-5 | `vitest` prints `Not implemented: HTMLCanvasElement's getContext()` during `npm test`. | none | jsdom limitation. No test failed. |
+| O-6 | Two Retry test titles promise more than their bodies assert (REQ-WF1-05 items 3 and 5): the over-long case, and focus moving into the search form. | REQ-WF1-05 | Test-quality gap, not a failure. The behaviour may be right; it is not asserted. |
 
-Observations (not failures):
-- `src/main.tsx` is a placeholder; the built app displays nothing.
-- Vitest runs in the `node` environment; the adapters are tested only against stubs written by the Implementer, so stub fidelity to real browsers is unverified.
+Closed since the previous version: O-4 (no retry control for a failed search) is closed by observation (Retry exists and is tested).
 
 ## 6. Blocked, Not Run, and Unverified Checks
 
-| Item | Classification | Reason |
-|------|----------------|--------|
-| TASK-001 (user verification of provider facts, F-005) | **Unverified / Blocked (user action)** | No user answers recorded; nothing assumed about Open-Meteo or any provider |
-| TASK-002 (icon set, deferred values) | **Blocked (user action)** | |
-| TASK-022 to 025 (provider adapters, attribution) | **Not implemented / Blocked** | Depend on TASK-001; no live provider behavior tested |
-| TASK-026 to 034 (all UI) | **Not implemented** | No component, layout, search UI, card, forecast list, refresh control, favorites UI, location control, unit toggle, status area exist |
-| TASK-035 (icon assets) | **Blocked** | |
-| TASK-036 to 046 (composition root, scenario tests, accessibility, responsive, security, latency, deploy, review, docs, release) | **Not run** | Not implemented or not approved |
-| `npm run dev` | **Not run** | See Section 4 |
-| Real-browser checks: Geolocation prompt/permission/timeout, Permissions API support, `localStorage` persistence across reload, blocked storage | **Not run / Unverified** | No browser testing was performed |
-| Real provider calls, CORS, rate limits, time zone, reverse geocoding | **Not run / Unverified** | No adapter, no network access used |
-| Accessibility, contrast, keyboard, screen reader | **Not run / Unverified** | |
-| Responsive layout at 320/768/1280/1920 px | **Not run / Unverified** | |
-| Performance and NFR-004 targets (200 ms indicator, 3 s for 90%) | **Not run / Unverified** | |
-| Security scan of bundle for secrets, XSS rendering check | **Not run** | Only a placeholder bundle exists |
-| Code coverage measurement | **Not run** | No coverage tooling installed (installation not authorized) |
-| `npm audit` / dependency vulnerabilities | **Not run** | Requires network access |
+Blocked:
+| Check | Why |
+|---|---|
+| `npm run smoke:live` (live Open-Meteo for geocoding, current, forecast) | Intermittent DNS on this machine; geocoding failed in both attempts (Section 4, 5-pre..5c). Re-run on a working network. |
+
+Not run (no attempt; manual or no tooling exists):
+| Check | Plan reference | Why not run |
+|---|---|---|
+| Real-device smoke on iOS Safari, Android Chrome, desktop Edge and Safari | T-70 | Manual; needs an HTTPS test host (HOST, undecided) and real devices. |
+| Screen-reader pass | T-71 | Manual. |
+| Keyboard walk-through (a Playwright keyboard-search test exists), 200 % zoom, contrast check | T-72 | Manual part not performed. |
+| Permissions API behaviour on real browsers (unanswered prompt, change event) | T-73 | Manual; mobile part needs HOST. |
+| Live provider smoke with timing observations (non-gating) | T-74 | Manual; smoke:live is blocked. |
+| Real-browser CORS check under the CSP, recording the real rate-limit response | T-75 | Manual. The HTTP status for a limit is NOT CONFIRMED (provider-verification.md item 2). This is also where `cache:'no-store'` preflight on Firefox/WebKit would be settled. |
+| Deployed HTTPS origin check of the CSP | T-51 (deployment part) | Needs HOST. The meta-tag CSP itself is tested in the release build. |
+| Browser test of `cache: 'no-store'` and a changed-payload refresh | T-64 | Not built. |
+| Code coverage measurement | none | No coverage script in `package.json`. |
+| Performance measurement (3 s non-gating target, 200 ms render budget) | T-74, T-44 | Not measured. |
+| Live check of the approved `get` port (`forecast_days=3` incl. today, `timezone=auto`, `is_day` in one request) | T-30 | No adapter for the approved port exists (O-3). |
+
+Unverified:
+- Full character-for-character comparison of all 45 catalogue messages against the code (12 compared; 30 IDs cited by tests).
+- Behaviour of the current adapter code against the real API (smoke:live blocked).
+- `cache:'no-store'` CORS/preflight behaviour on Firefox and WebKit against the real provider (cannot be checked without network; Section 5, O-2).
+- Whether impl-plan Phase 1 and 2 completion criteria are met: the plan records no completion evidence and its status text is stale (Section 8).
+- WF7-01, WF7-04, WF7-06 assertions (title-only); the `timeout` kind Retry; one-section unreadable response through the real stack.
 
 ## 7. Coverage Gaps
 
-- Every user-visible acceptance criterion (AC-001-1 to AC-007-6) lacks end-to-end verification because no UI exists. Only the core logic beneath them is tested. AC-007-1, 4, 5 and 6 have no evidence at all.
-- No scenario tests against the composed app (TASK-038) exist. Tests are per-module; interaction through the real controller was covered only by `appController.test.ts` with fakes.
-- Fake-based tests do not validate the real provider payload shapes, units, or condition codes (no adapters exist).
-- Adapter tests use stubs. Known limitation recorded by the Implementer: the Geolocation API cannot cancel a request and starts its timeout only after the permission prompt is answered, so a user who leaves the prompt open is not timed out. This is not verified or mitigated.
-- The "no UI string literals outside the message table" rule is enforced only by a source-scan test of `format.ts`; no lint rule exists, and future UI code is not covered.
-- Several tests use fake timers; no real-time timeout or latency behavior was observed.
-- Requirements marked TBD (FR-007, 012, 013, 017, 025, 031, 038, 039; NFR-002, 003, 004, 007, 008; EC-003, 004, 015, 016, 018, 019) were verified only against the implementation's default assumptions, which the user has not confirmed.
-- The mapping in Section 3 relies on test titles and Implementer notes; not every test body was read, so a test may cover less than its title or the plan suggests.
-- Error mapping `NETWORK` treated as `SERVICE_UNAVAILABLE`, and over-length input returning `NOT_FOUND`, are Implementer decisions awaiting user confirmation (`impl-plan.md` TASK-013); the tests verify the current behavior, not its acceptability.
+Top gaps, in order of importance:
+
+1. **No live-API evidence for the current adapter code.** smoke:live is Blocked (intermittent DNS), and even when it runs it does not exercise includeToday true, `is_day`, `no-store` or the rate-limit path (O-1). The `cache:'no-store'` preflight behaviour on Firefox/WebKit against the real provider is unverified (O-2).
+2. **Manual checks T-70..T-75 are all Not run** (real devices and browsers, screen reader, 200 % zoom, Permissions API, live timing, CORS and the real rate-limit response). WF2 (real device location), WF7-01/04/06 rest on automated evidence only.
+3. **The impl-plan migration is not finished (O-3).** The Legacy* ports are still the composed path (T-20..T-27 core services still use `LegacyGeocodingProvider`, `LegacyWeatherProvider`, `LegacyLocationService`; `FavoritesService` is still the legacy `Location`-shaped service with the new `{v, items}` storage and an approved-API file `favorites/api.ts` that nothing implements). No class implements `WeatherProvider.get`, `GeocodingProvider`, `LocationService` or `FavoritesApi` (T-30/T-31 adapters, T-32), so the approved ports (T-20..T-32) are not implemented and the single-request weather call is not built. Config `bundleBudgetGzipBytes`, watchdog, `forecastIncludesToday`, single-flight, opaque device key, M-xx wording, footer, rate_limited and aborted kinds are implemented and tested on the legacy path.
+4. **Browser suites T-61..T-64 are still partial.** Checked this run by grep of `e2e/`: there is NO browser test of Refresh (no click on a Refresh button; the only "refreshes" title is `Use my location` re-locating), NO unit-toggle test (no radio/°F interaction), NO test where the 10 s watchdog fires, NO cache-mode assertion, NO section Retry (current/forecast) test, NO favorite remove or duplicate test, no error-boundary test. What IS covered in browsers: T-62 axe in 7 states at 320 and 1280 px; T-63 breakpoints 320, 767, 768, 1023, 1024, 1280 px and a resize test; geolocation grant, refuse (two variants), unavailable, unsupported, unanswered prompt; localStorage reload persistence, five corrupt-record variants, missing and failing storage; and, new this run, the failed-search Retry flow and the M-04/M-06 search messages, plus the existing 18 `release.spec.ts` tests. So the previous statement that refresh/unit-toggle/watchdog/cache-mode browser coverage is missing is **still true**; only the search Retry was added.
+5. Traceability is by meaning for most requirements: only some tests carry `REQ-` IDs (WF1-05, WF2-01/02 and a few). 3 of 40 IDs are judged from titles only, 3 from the previous run's reading.
+6. Playwright Firefox/WebKit are not real Safari or Edge.
+7. Open requirement items (Q2 browsers/breakpoints, Q10 timeout, Q13 includes-today and date format, Q16 icon set incl. day/night, Q26 accessibility standard, Q29 performance) mean WF2-04, WF3-02, WF4-01, WF4-02, WF7-01, WF7-04, WF7-05 are checked against the architecture's proposals, not user-approved values.
+8. No reverse geocoding (the device location label is always "Current location"). The `timeout` search-error kind has no Retry test; axe does not run with a Retry button showing.
 
 ## 8. Limitations and Dependencies
 
-- Not a git repository: no diff of changes was available; completeness of the change set relies on `impl-plan.md`.
-- The plan's approval statements could not be independently verified.
-- Results are from a single environment (Node v24.21.0 on Windows) and a single run each (the test suite was run twice with identical results).
-- Nothing about provider terms, attribution, rate limits, CORS or time zones has been verified (F-005 open).
-- Revision 2 of the architecture was not re-reviewed by the Design Reviewer (recorded in `impl-plan.md`).
+- Results are valid for the working tree on 2026-11-02 (runs 15:16 to 15:24 IST) with HEAD `50bf7d8` plus uncommitted changes (144 paths). Any later change requires re-verification (Section 9).
+- smoke:live depends on the live Open-Meteo service and DNS. It must not be run in a loop (script header). I ran it twice because the first attempt failed for a network reason and DNS looked intermittent.
+- Playwright tests intercept the provider, so they do not test provider behaviour, CORS or rate limiting.
+- "Read" means I read the named test body in the cited file. I did not read every test in a file, and a named test covers only what it asserts.
+- Node and npm versions were carried over from the previous run, not re-queried.
+- **Documents still disagree about status. I did not fix them (not my scope). Current discrepancies, re-checked 2026-11-02 against the files:**
+  1. `impl-plan.md` line 11 still says "NO IMPLEMENTATION HAS BEEN DONE under this plan"; line 20 still says U7 is "the only remaining decision blocker" and new gate AUTH is outstanding; line 64 lists U7 as OPEN with `message-wording.md` "NOT approved" (also lines 204 and 279); tasks are shown "Unblocked - awaiting user authorization" (e.g. lines 108, 121, 136, 146). The repository contradicts this: `src/`, `test/` and `e2e/` implement and test most of Phases 1, 2, 4 and 6, and `message-wording.md` line 5 records approval (2026-10-30, footer Option A). T-10..T-15 and T-20..T-27 are not marked Done.
+  2. `impl-plan.md` lines 31, 117 and 368 say `test/` has 51 files. The current count is 54 test files (`find test -name "*.test.ts" -o -name "*.test.tsx"` = 54, which equals the Vitest file count; this resolves the earlier "which files" question as far as the name match goes). `test-triage.md` reports 52 test files; I did not confirm which two files it omits.
+  3. `design-review.md` header row at line 9 and lines 316, 341 and 350 still say "NOT APPROVED" / "None is approved"; its Section 10 records approval with conditions. `architecture.md` header line 5 says approved with conditions, but line 13 says "None is approved" and the technology-table row at line 166 says "Proposed; provider unapproved, facts unverified" for Open-Meteo.
+  4. `requirements.md` header row 9 (line 9) says "This is NOT approval of this document, which is still unapproved", while the approval record and Section 12 say approved on 2026-10-30. (Sections 4.8 and 9 repeat "document not approved" in several places.)
+  5. `message-wording.md` line 5 says "APPROVED BY USER (2026-10-30), footer Option A", but line 8 still says "Nothing in this file is approved. No text below may be treated as final...". The tests cite and match its text on the assumption that line 5 is correct.
+- Test labels `TASK-025`, `TASK-035`, `AC-00n-m`, `EC-0nn`, `FR-007` are from the prior implementation and do not match current plan IDs or requirement IDs.
 
 ## 9. Required Follow-up
 
-1. The user resolves TASK-001 and TASK-002 so provider adapters and icons can be implemented and verified.
-2. UI tasks (TASK-026 to 036) must be implemented and approved; then re-verify with component tests, a DOM test environment, and the scenario tests of TASK-038.
-3. Perform real-browser checks (TASK-040): Geolocation, Permissions API, `localStorage` persistence, responsive layouts, accessibility (TASK-039), security/privacy (TASK-041).
-4. Decide on adding a coverage tool and on a lint rule for UI string literals if wanted (needs user authorization for installing packages).
-5. Re-run all four commands after any change to `src/` or `test/`; this record applies only to the code as it stood at the time of the runs above.
-6. Do not treat these results as release readiness. TASK-046 remains blocked.
+1. **Re-run `npm run smoke:live` once on a network that resolves DNS reliably** and record the result; this is the only way to get live evidence for the current adapter code. Do not loop it.
+2. Implementer / user: decide whether `test/live/openMeteo.live.ts` should call `getForecast(place, 3, true, ...)` (and check `is_day`) so the live smoke exercises `forecastIncludesToday: true` (needs user confirmation, impl-plan Section 6 item 7). Until then a passing smoke run will NOT show "today plus two days".
+3. Implementer (needs user AUTH for Phase 3): implement adapters for the approved ports (`WeatherProvider.get`, `GeocodingProvider`, `LocationService`) and an implementation of `FavoritesApi`; migrate core services off `Legacy*` (T-20..T-27, T-30..T-32); add the contract tests. Re-verify afterwards.
+4. Test owner: add browser tests for the T-61 gaps (Refresh, unit toggle and its persistence, section Retry, favorite remove/duplicate, watchdog firing) and T-64 (cache mode, changed-payload refresh); add axe coverage with the Retry button showing; make the two Retry test bodies match their titles (O-6) and add a `timeout`-kind Retry case; put `REQ-` IDs in test titles.
+5. User / Orchestrator: decide HOST so T-70, T-73 (mobile), T-75 (which also settles the Firefox/WebKit `no-store` preflight question) and the deployed-origin CSP check can be scheduled; perform and record T-70..T-75.
+6. Orchestrator / document owners: reconcile the stale status text listed in Section 8.
+7. Re-verification is required after any change in `src/`, `test/`, `e2e/`, `scripts/` or config. Release preparation must not treat this file as release readiness: smoke:live is failed/blocked, manual checks are Not run, and the approved adapter work is outstanding.
