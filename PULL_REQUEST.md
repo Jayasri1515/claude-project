@@ -1,6 +1,6 @@
 # Rework weather app to the approved design (partial, not complete)
 
-> **Local draft only.** No pull request exists. Nothing was committed, pushed or published, and publishing needs the user's explicit authorization, which has not been given. Source branch `feature/weather-app`, target `main`. Everything described here is uncommitted in the working tree on top of `50bf7d8` (`git status --short`: 144 paths; `git diff --stat HEAD`: 125 tracked files, 6619 insertions, 6018 deletions; 19 untracked paths).
+> **Status.** Source branch `feature/weather-app`, target `main`. This pull request replaces the earlier initial description: the branch was reworked onto the approved requirements and architecture (commit `10fca0b`: 144 files). Nothing is merged, tagged, deployed or published.
 >
 > **This branch is not complete against `impl-plan.md`.** See "Known limitations and not done". It is not release-ready.
 
@@ -48,12 +48,12 @@
 
 ### Documents
 - Updated: `README.md`, `docs/deployment.md`, `requirements.md`, `architecture.md`, `design-review.md`, `impl-plan.md`, `verification.md`, `.claude/agents/sdlc-orchestrator.md`.
-- Untracked and new: `message-wording.md`, `provider-verification.md`, `conformance-review.md`, `test-triage.md`, `.env.example`, `test/contract/`.
-- `documentation.md` shows as deleted in the working tree; another agent is writing it, so it is not covered here.
+- New: `message-wording.md`, `provider-verification.md`, `conformance-review.md`, `test-triage.md`, `.env.example`, `test/contract/`.
+- `documentation.md` (new), `CHANGELOG.md` and this description are added as documents.
 
 ## Verification
 
-All figures are from `verification.md` (runs on 2026-11-02, 15:16 to 15:24 IST, HEAD `50bf7d8` plus the uncommitted changes). I did not re-run any command to prepare this draft.
+All figures are from `verification.md` (runs on 2026-11-02, 15:16 to 15:24 IST, on the working tree later committed as `10fca0b`). The commands were not re-run after the commit.
 
 | Command | Result | Evidence |
 |---|---|---|
@@ -74,7 +74,7 @@ What this does not show (from `verification.md`):
 Approvals and review found in the repository:
 - `requirements.md`: approved by the user 2026-10-30, open items deferred to the Architect (header). `architecture.md`: approved by the user 2026-10-30 with conditions (header). `design-review.md` Section 10 records approval with conditions per `verification.md`; I did not re-read it in full. `impl-plan.md` records plan approval 2026-10-30; `message-wording.md` line 5 records approval 2026-10-30, footer Option A.
 - Authorization: `impl-plan.md` still says no implementation is authorized (stale text, see below). The authorization was given in the working session, not in a file: the user directed the work in steps (the two review blockers; then the major review findings, in four batches; then the re-review findings: refresh race, search Retry, remaining approved wording). It covers only that work, not the rest of the plan (Phase 2 port migration and later tasks).
-- Code review: `conformance-review.md` is a static review (task T-01) of the earlier implementation. Two Code Reviewer passes over the current working tree were also run in the session: a first review (2 blockers, 11 majors) and a re-review after those fixes (2 new majors plus the incomplete wording). Their reports were returned in the session and are not saved as files. The fixes after the re-review (refresh race, search Retry, M-04/M-06/M-25..M-27, small minors) were verified by the tests in `verification.md` but have not had a further code review.
+- Code review: `conformance-review.md` is a static review (task T-01) of the earlier implementation. Two Code Reviewer passes over the working tree before it was committed were also run in the session: a first review (2 blockers, 11 majors) and a re-review after those fixes (2 new majors plus the incomplete wording). Their reports were returned in the session and are not saved as files. The fixes after the re-review (refresh race, search Retry, M-04/M-06/M-25..M-27, small minors) were verified by the tests in `verification.md` but have not had a further code review.
 
 ## Known limitations and not done
 
@@ -87,7 +87,7 @@ Not complete against `impl-plan.md`:
 - **Minor cleanup items:** the legacy test labels (`TASK-025`, `AC-00n-m`, `EC-0nn`, `FR-007`) do not match current IDs; only some tests carry `REQ-` IDs; 15 of 45 catalogue messages are not cited by any test, and only 12 were compared character by character with `message-wording.md`; `test-triage.md` lists 52 test files, the repository has 54; the device location label is always "Current location" (no reverse geocoding); the jsdom `getContext()` "Not implemented" warning appears during `npm test` (no test fails).
 - **CSP limits:** delivered as a meta tag, so `frame-ancestors`, `report-uri` and `sandbox` are ignored. A real response header would need a host that allows it.
 - **Nothing is deployed.** The host is undecided; the expected GitHub Pages URL in the docs is unverified.
-- **Scope of the working tree:** 19 untracked paths include `archive/` (not used as input for this draft) and the SDLC documents listed above. Whether each should be part of the pull request is for the user to decide.
+- **Not included:** the untracked `archive/` directory (old material, not used as input) is not part of this branch.
 
 ## Assumptions needing reviewer or user confirmation
 
@@ -140,3 +140,4 @@ Manual, not run:
 - [ ] Re-run `verification.md` after any further change in `src/`, `test/`, `e2e/`, `scripts/` or config
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
